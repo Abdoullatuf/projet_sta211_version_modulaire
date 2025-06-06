@@ -39,7 +39,8 @@ def setup_project_paths() -> Dict[str, Path]:
         "RAW_DATA_DIR": root_dir / "data" / "raw",
         "DATA_PROCESSED": root_dir / "data" / "processed",
         "MODELS_DIR": root_dir / "models",
-        "FIGURES_DIR": root_dir / "outputs" / "figures"
+        "FIGURES_DIR": root_dir / "outputs" / "figures",
+        "OUTPUTS_DIR": root_dir / "outputs"
     }
 
     # Création des dossiers si nécessaires

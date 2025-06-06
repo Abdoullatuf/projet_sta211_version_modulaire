@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import f_classif
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
+
+
 
 def save_fig(
     fname: str,
@@ -621,3 +627,56 @@ def plot_eda_summary(df, continuous_cols, binary_cols, target_corr, sparsity, im
     plt.suptitle("Résumé visuel de l'EDA")
     plt.tight_layout()
     save_fig('eda_summary.png', directory=output_dir, figsize=(14, 8))
+
+
+
+
+def plot_outlier_comparison(
+    df_before: pd.DataFrame,
+    df_after: pd.DataFrame,
+    cols: List[str],
+    output_dir: Union[str, Path],
+    show: bool = True,
+    save: bool = True,
+    dpi: int = 100
+):
+    """
+    Affiche les boxplots avant/après suppression des outliers pour chaque variable.
+
+    Args:
+        df_before (pd.DataFrame): Données avant suppression.
+        df_after (pd.DataFrame): Données après suppression.
+        cols (list): Colonnes à analyser.
+        output_dir (str or Path): Dossier de sauvegarde des figures.
+        show (bool): Affiche les figures si True.
+        save (bool): Sauvegarde les figures si True.
+        dpi (int): Résolution de l’image sauvegardée.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for col in cols:
+        fig, axes = plt.subplots(1, 2, figsize=(10, 3.5))
+
+        sns.boxplot(x=df_before[col], ax=axes[0], color='salmon')
+        axes[0].set_title(f"{col} - Avant suppression")
+
+        sns.boxplot(x=df_after[col], ax=axes[1], color='mediumseagreen')
+        axes[1].set_title(f"{col} - Après suppression")
+
+        plt.tight_layout()
+
+        if save:
+            from exploration.visualization import save_fig
+            save_fig(
+                fname=f"{col}_outliers_comparison.png",
+                directory=output_dir,
+                figsize=(10, 3.5),
+                dpi=dpi,
+                show=show,
+                close=not show
+            )
+        elif show:
+            plt.show()
+        else:
+            plt.close()

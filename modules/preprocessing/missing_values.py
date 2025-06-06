@@ -13,41 +13,59 @@ import joblib
 import os
 
 
-def analyze_missing_values(df: pd.DataFrame) -> dict:
+
+
+
+def analyze_missing_values(df: pd.DataFrame, columns: Optional[List[str]] = None, plot: bool = False) -> dict:
     """
-    Analyse des valeurs manquantes :
-      - Total et % global
-      - Par colonne : high (>30%), medium (5-30%), low (≤5%)
-      - Top 5 colonnes manquantes
-    Retourne un dict de statistiques.
+    Analyse des valeurs manquantes sur l’ensemble ou un sous-ensemble des colonnes.
+
+    Args:
+        df (pd.DataFrame): Le DataFrame à analyser.
+        columns (list, optional): Colonnes à considérer. Si None, toutes les colonnes sont utilisées.
+        plot (bool, optional): Affiche un barplot des pourcentages de valeurs manquantes.
+
+    Returns:
+        dict: Statistiques résumant les valeurs manquantes.
     """
-    total = df.size
-    miss = df.isnull().sum().sum()
+    df_check = df[columns] if columns else df.copy()
+
+    total = df_check.size
+    miss = df_check.isnull().sum().sum()
     pct = miss / total * 100
 
-    by_col = df.isnull().sum()
+    by_col = df_check.isnull().sum()
     by_col = by_col[by_col > 0]
-    pct_col = by_col / len(df) * 100
+    pct_col = by_col / len(df_check) * 100
 
     high = pct_col[pct_col > 30]
-    med  = pct_col[(pct_col > 5) & (pct_col <= 30)]
-    low  = pct_col[pct_col <= 5]
+    med = pct_col[(pct_col > 5) & (pct_col <= 30)]
+    low = pct_col[pct_col <= 5]
 
     print(f"Total missing       : {miss} ({pct:.2f}%)")
-    print(f"Colonnes affectées  : {len(by_col)} "
-          f"(haut: {len(high)}, moyen: {len(med)}, bas: {len(low)})")
+    print(f"Colonnes affectées  : {len(by_col)} (haut: {len(high)}, moyen: {len(med)}, bas: {len(low)})")
     print("Top 5 colonnes manquantes :")
     print(pct_col.sort_values(ascending=False).head())
 
+    if plot and not pct_col.empty:
+        plt.figure(figsize=(10, 4))
+        sns.barplot(x=pct_col.index, y=pct_col.values, palette='coolwarm')
+        plt.xticks(rotation=45, ha='right')
+        plt.ylabel('% de valeurs manquantes')
+        plt.title('Pourcentage de valeurs manquantes par variable')
+        plt.tight_layout()
+        plt.show()
+
     return {
-        'total_missing':      int(miss),
-        'percent_missing':    pct,
-        'cols_missing':       by_col.to_dict(),
-        'percent_per_col':    pct_col.to_dict(),
-        'high_missing':       high.to_dict(),
-        'medium_missing':     med.to_dict(),
-        'low_missing':        low.to_dict(),
+        'total_missing': int(miss),
+        'percent_missing': pct,
+        'cols_missing': by_col.to_dict(),
+        'percent_per_col': pct_col.to_dict(),
+        'high_missing': high.to_dict(),
+        'medium_missing': med.to_dict(),
+        'low_missing': low.to_dict(),
     }
+
 
 
 

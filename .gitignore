@@ -1,0 +1,45 @@
+# === Dossiers à ignorer ===
+__pycache__/
+.ipynb_checkpoints/
+.vscode/
+.env/
+.venv/
+.DS_Store
+*.egg-info/
+*.idea/
+
+# === Fichiers générés ===
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.tmp
+*.bak
+
+# === Données et modèles ===
+data/
+models/
+*.csv
+*.xlsx
+*.pkl
+*.joblib
+
+# === Notebooks temporaires ===
+*.checkpoint.ipynb
+
+# === OS / Cloud sync files ===
+Thumbs.db
+desktop.ini
+*.swp
+~$*
+*.gdoc
+*.gsheet
+
+# === Environnement Conda ===
+*.conda
+*.lock
+
+# === Environnements virtuels ===
+.env/
+.venv/
+venv_sta211/

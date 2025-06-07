@@ -4,17 +4,14 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from typing import List, Optional
+from typing import List, Optional, Union
 from sklearn.impute import KNNImputer, IterativeImputer
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error
 from scipy import stats
 import joblib
 import os
-
-
-
-
+from pathlib import Path
 
 def analyze_missing_values(df: pd.DataFrame, columns: Optional[List[str]] = None, plot: bool = False) -> dict:
     """
@@ -71,7 +68,7 @@ def analyze_missing_values(df: pd.DataFrame, columns: Optional[List[str]] = None
 
 
 def find_optimal_k(
-    data: pd.DataFrame,
+    df: pd.DataFrame,
     continuous_cols: list[str],
     k_range: range = range(1, 21),
     cv_folds: int = 5,
@@ -81,7 +78,7 @@ def find_optimal_k(
     Trouve k optimal pour KNNImputer via CV sur un petit échantillon.
     Affiche la courbe MSE vs k, et renvoie le k minimisant le MSE.
     """
-    X = data[continuous_cols].copy()
+    X = df[continuous_cols].copy()
     if len(X) > sample_size:
         X = X.sample(n=sample_size, random_state=42)
 
@@ -136,6 +133,8 @@ def find_optimal_k(
 
 
 
+
+
 def handle_missing_values(
     df: pd.DataFrame,
     strategy: str = 'mixed_mar_mcar',
@@ -145,8 +144,9 @@ def handle_missing_values(
     mcar_cols: Optional[List[str]] = None,
     display_info: bool = True,
     save_results: bool = True,
-    processed_data_dir: Optional[str] = None,
-    models_dir: Optional[str] = None
+    processed_data_dir: Optional[Union[str, Path]] = None,
+    models_dir: Optional[Union[str, Path]] = None,
+    custom_filename: Optional[str] = None  
 ) -> pd.DataFrame:
     """
     Gère les valeurs manquantes dans un DataFrame selon différentes stratégies :
@@ -160,7 +160,7 @@ def handle_missing_values(
         knn_k : nombre de voisins pour KNN (si méthode knn)
         mar_cols : liste des colonnes MAR (ex : ['X1_trans', 'X2_trans', 'X3_trans'])
         mcar_cols : liste des colonnes MCAR à imputer par médiane
-        ...
+        custom_filename : nom personnalisé pour le fichier de sauvegarde (ex : "df_clean.csv")
 
     Returns :
         df_proc : DataFrame imputé
@@ -168,7 +168,6 @@ def handle_missing_values(
     df_proc = df.copy()
     suffix = ''
 
-    # STRATEGY 1 : tout par médiane
     if strategy == 'all_median':
         num_cols = df_proc.select_dtypes(include=[np.number]).columns
         for col in num_cols:
@@ -177,7 +176,6 @@ def handle_missing_values(
         if display_info:
             print(f"→ Imputation par médiane sur {len(num_cols)} colonnes numériques.")
 
-    # STRATEGY 2 : MAR + MCAR séparés
     elif strategy == 'mixed_mar_mcar':
         if mar_cols is None:
             mar_cols = ['X1_trans', 'X2_trans', 'X3_trans']
@@ -203,14 +201,14 @@ def handle_missing_values(
                 raise ValueError("❌ mar_method doit être 'knn' ou 'mice'.")
 
             if save_results and models_dir:
-                os.makedirs(models_dir, exist_ok=True)
-                imp_path = os.path.join(models_dir, f"imputer_{suffix}.pkl")
+                models_dir = Path(models_dir)
+                models_dir.mkdir(parents=True, exist_ok=True)
+                imp_path = models_dir / f"imputer_{suffix}.pkl"
                 joblib.dump(imputer, imp_path)
 
             if display_info:
                 print(f"✅ Imputation {mar_method} appliquée sur : {mar_cols}")
 
-        # Imputation médiane pour MCAR
         for col in mcar_cols:
             if col in df_proc.columns:
                 val = df_proc[col].median()
@@ -221,15 +219,17 @@ def handle_missing_values(
     else:
         raise ValueError("❌ strategy doit être 'all_median' ou 'mixed_mar_mcar'.")
 
-    # Sauvegarde
     if save_results:
         if processed_data_dir is None:
             raise ValueError("processed_data_dir doit être fourni si save_results=True.")
-        os.makedirs(processed_data_dir, exist_ok=True)
-        filename = f"df_imputed_{suffix}.csv"
-        filepath = os.path.join(processed_data_dir, filename)
+        processed_data_dir = Path(processed_data_dir)
+        processed_data_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = custom_filename or f"df_imputed_{suffix}.csv"
+        filepath = processed_data_dir / filename
         df_proc.to_csv(filepath, index=False)
         if display_info:
             print(f"✔ Données imputées sauvegardées dans '{filepath}'")
 
     return df_proc
+

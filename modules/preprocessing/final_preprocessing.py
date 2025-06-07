@@ -247,7 +247,7 @@ def prepare_final_dataset(
 
     df_reduced, _, _ = drop_correlated_duplicates(
         df=df,
-        groups=groups_corr,
+        groups=groups_corr["groups"],
         target_col=target_col,
         extra_cols=mar_cols + mcar_cols,
         summary=display_info

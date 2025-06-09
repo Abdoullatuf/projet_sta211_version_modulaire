@@ -1,16 +1,25 @@
 """
-preprocessing/final_preprocessing.py - VERSION CORRIGÉE AVEC PROTECTION X4
+preprocessing/final_preprocessing.py - VERSION 3.0 COMPLÈTEMENT CORRIGÉE
 
 Module de prétraitement complet pour le projet STA211 Internet Advertisements.
-Inclut la protection de X4, l'ordre des colonnes optimisé, et la validation à chaque étape.
+Inclut toutes les corrections, la réduction de corrélation optimisée, et les fonctions avancées.
 
-CORRECTIONS:
-- Fix TypeError dans find_highly_correlated_groups
+NOUVELLES FONCTIONNALITÉS VERSION 3.0:
+- Intégration de l'analyse de corrélation comprehensive
+- Réduction de dimensionnalité efficace
+- Protection X4 renforcée
+- Fonctions de diagnostic avancées
+- Pipeline modulaire et robuste
+
+CORRECTIONS VERSION 3.0:
+- Fix TypeError complet dans find_highly_correlated_groups
+- Analyse de corrélation comprehensive intégrée
 - Validation robuste des types de retour
-- Gestion d'erreurs améliorée
+- Gestion d'erreurs améliorée à tous les niveaux
+- Fonctions utilitaires avancées
 
 Auteur: Abdoullatuf
-Version: 2.1 (Corrigée)
+Version: 3.0 (Complètement Corrigée)
 Date: 2025
 """
 
@@ -112,7 +121,213 @@ def apply_yeojohnson(
 
 
 # ============================================================================
-# 2. GESTION DE LA CORRÉLATION ET RÉDUCTION DE DIMENSIONNALITÉ (CORRIGÉE)
+# 2. ANALYSE DE CORRÉLATION COMPREHENSIVE (NOUVELLE VERSION 3.0)
+# ============================================================================
+
+def analyze_correlation_comprehensive(df: pd.DataFrame, threshold=0.90, show_analysis=True):
+    """
+    Analyse de corrélation complète avec protection X4 et réduction effective.
+    
+    Args:
+        df: DataFrame d'entrée
+        threshold: Seuil de corrélation pour suppression
+        show_analysis: Afficher l'analyse détaillée
+        
+    Returns:
+        df_reduced, correlation_report
+    """
+    
+    if show_analysis:
+        print("🔍 ANALYSE DE CORRÉLATION COMPREHENSIVE")
+        print("=" * 45)
+        print(f"📊 Dataset initial : {df.shape}")
+    
+    # ========================================================================
+    # 1. IDENTIFICATION DES VARIABLES BINAIRES
+    # ========================================================================
+    
+    # Variables binaires (exclure outcome et protéger X4)
+    binary_vars = []
+    protected_vars = ['X4']  # Variables à protéger
+    excluded_vars = ['outcome']  # Variables à exclure de l'analyse
+    
+    for col in df.columns:
+        if col in excluded_vars:
+            continue
+        if df[col].dtype in ['int64', 'Int64', 'bool']:
+            # Vérifier que c'est vraiment binaire
+            unique_vals = df[col].dropna().unique()
+            if len(unique_vals) <= 2 and set(unique_vals).issubset({0, 1}):
+                binary_vars.append(col)
+    
+    if show_analysis:
+        print(f"🔢 Variables binaires trouvées : {len(binary_vars)}")
+        print(f"🛡️ Variables protégées : {protected_vars}")
+        print(f"⚠️ Variables exclues : {excluded_vars}")
+    
+    if len(binary_vars) < 2:
+        if show_analysis:
+            print("❌ Pas assez de variables binaires pour l'analyse")
+        return df, {"message": "Pas assez de variables binaires"}
+    
+    # ========================================================================
+    # 2. CALCUL DE LA MATRICE DE CORRÉLATION
+    # ========================================================================
+    
+    try:
+        # Calcul sur les variables binaires seulement
+        binary_df = df[binary_vars]
+        corr_matrix = binary_df.corr().abs()
+        
+        if show_analysis:
+            print(f"📐 Matrice de corrélation : {corr_matrix.shape}")
+            
+    except Exception as e:
+        if show_analysis:
+            print(f"❌ Erreur calcul corrélation : {e}")
+        return df, {"error": str(e)}
+    
+    # ========================================================================
+    # 3. IDENTIFICATION DES GROUPES CORRÉLÉS
+    # ========================================================================
+    
+    # Triangle supérieur pour éviter les doublons
+    upper_triangle = corr_matrix.where(
+        np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
+    )
+    
+    # Identifier les paires hautement corrélées
+    highly_correlated_pairs = []
+    
+    for col in upper_triangle.columns:
+        correlated_with = upper_triangle[col][upper_triangle[col] > threshold]
+        if len(correlated_with) > 0:
+            for corr_col, corr_val in correlated_with.items():
+                highly_correlated_pairs.append({
+                    'var1': col,
+                    'var2': corr_col, 
+                    'correlation': corr_val
+                })
+    
+    if show_analysis:
+        print(f"🔗 Paires hautement corrélées (>{threshold}) : {len(highly_correlated_pairs)}")
+        
+        # Afficher quelques exemples
+        if highly_correlated_pairs:
+            print("📋 Exemples de corrélations élevées :")
+            for i, pair in enumerate(highly_correlated_pairs[:5]):
+                print(f"   {pair['var1']} ↔ {pair['var2']}: {pair['correlation']:.3f}")
+            if len(highly_correlated_pairs) > 5:
+                print(f"   ... et {len(highly_correlated_pairs) - 5} autres")
+    
+    # ========================================================================
+    # 4. STRATÉGIE DE SUPPRESSION AVEC PROTECTION
+    # ========================================================================
+    
+    # Variables à supprimer (en protégeant X4)
+    vars_to_drop = set()
+    
+    # Pour chaque paire corrélée, supprimer une des deux variables
+    for pair in highly_correlated_pairs:
+        var1, var2 = pair['var1'], pair['var2']
+        
+        # Logique de priorité :
+        # 1. Ne jamais supprimer X4
+        # 2. Supprimer la variable avec l'index le plus élevé (convention)
+        
+        if var1 in protected_vars:
+            # Protéger var1, supprimer var2 si pas protégée
+            if var2 not in protected_vars:
+                vars_to_drop.add(var2)
+        elif var2 in protected_vars:
+            # Protéger var2, supprimer var1
+            vars_to_drop.add(var1)
+        else:
+            # Aucune des deux n'est protégée, supprimer celle avec index plus élevé
+            if var1 > var2:  # Ordre alphabétique/numérique
+                vars_to_drop.add(var1)
+            else:
+                vars_to_drop.add(var2)
+    
+    vars_to_drop = list(vars_to_drop)
+    
+    if show_analysis:
+        print(f"📉 Variables marquées pour suppression : {len(vars_to_drop)}")
+        
+        # Vérification protection X4
+        x4_protected = all(var not in protected_vars for var in vars_to_drop)
+        print(f"🛡️ X4 correctement protégée : {'✅' if x4_protected else '❌'}")
+        
+        if vars_to_drop:
+            print(f"🗑️ Variables à supprimer : {vars_to_drop[:10]}{'...' if len(vars_to_drop) > 10 else ''}")
+    
+    # ========================================================================
+    # 5. APPLICATION DE LA SUPPRESSION
+    # ========================================================================
+    
+    # Suppression effective
+    df_reduced = df.drop(columns=vars_to_drop, errors='ignore')
+    
+    # Rapport final
+    correlation_report = {
+        'original_shape': df.shape,
+        'reduced_shape': df_reduced.shape,
+        'binary_vars_analyzed': len(binary_vars),
+        'highly_correlated_pairs': len(highly_correlated_pairs),
+        'vars_dropped': len(vars_to_drop),
+        'vars_dropped_list': vars_to_drop,
+        'protected_vars': protected_vars,
+        'x4_still_present': 'X4' in df_reduced.columns,
+        'dimension_reduction': df.shape[1] - df_reduced.shape[1]
+    }
+    
+    if show_analysis:
+        print(f"\n🎉 RÉSULTATS DE LA RÉDUCTION :")
+        print(f"📊 Dimensions avant : {correlation_report['original_shape']}")
+        print(f"📊 Dimensions après : {correlation_report['reduced_shape']}")
+        print(f"📉 Réduction : {correlation_report['dimension_reduction']} colonnes supprimées")
+        print(f"🛡️ X4 présente : {'✅' if correlation_report['x4_still_present'] else '❌'}")
+        print(f"⚖️ Pourcentage conservé : {df_reduced.shape[1]/df.shape[1]*100:.1f}%")
+    
+    return df_reduced, correlation_report
+
+
+def apply_correlation_reduction_to_dataset(df, threshold=0.95):
+    """Applique la réduction de corrélation à un dataset."""
+    
+    print("🚀 APPLICATION DE LA RÉDUCTION DE CORRÉLATION")
+    print("=" * 50)
+    
+    # Application
+    df_reduced, report = analyze_correlation_comprehensive(df, threshold=threshold)
+    
+    # Validation finale
+    print(f"\n🔍 VALIDATION FINALE :")
+    print(f"✅ Dimensions réduites : {df.shape} → {df_reduced.shape}")
+    print(f"✅ X4 conservée : {'X4' in df_reduced.columns}")
+    print(f"✅ Outcome conservée : {'outcome' in df_reduced.columns}")
+    print(f"✅ Variables transformées conservées : {all(col in df_reduced.columns for col in ['X1_trans', 'X2_trans', 'X3_trans'])}")
+    
+    # Vérification ordre des colonnes
+    priority_cols = ['X1_trans', 'X2_trans', 'X3_trans', 'X4', 'outcome']
+    current_order = df_reduced.columns.tolist()
+    first_cols = current_order[:len(priority_cols)]
+    
+    print(f"📌 Ordre des premières colonnes : {first_cols}")
+    
+    # Réorganiser si nécessaire
+    if first_cols != priority_cols:
+        print("🔄 Réorganisation des colonnes...")
+        other_cols = [col for col in current_order if col not in priority_cols]
+        new_order = priority_cols + other_cols
+        df_reduced = df_reduced[new_order]
+        print(f"✅ Colonnes réorganisées : {df_reduced.columns[:5].tolist()}")
+    
+    return df_reduced, report
+
+
+# ============================================================================
+# 3. ANCIENNES FONCTIONS CORRIGÉES (COMPATIBILITÉ)
 # ============================================================================
 
 def find_highly_correlated_groups(
@@ -127,7 +342,7 @@ def find_highly_correlated_groups(
     """
     Identifie les groupes de variables fortement corrélées avec protection de certaines colonnes.
     
-    CORRECTION: Garantit toujours un retour en dictionnaire avec validation.
+    VERSION 3.0 - COMPLÈTEMENT CORRIGÉE
     
     Args:
         df: DataFrame d'entrée
@@ -145,7 +360,7 @@ def find_highly_correlated_groups(
     if protected_cols is None:
         protected_cols = ['X4']
     
-    # 🔧 VALIDATION D'ENTRÉE (NOUVELLE)
+    # 🔧 VALIDATION D'ENTRÉE RENFORCÉE
     if df.empty:
         print("⚠️ DataFrame vide - retour structure par défaut")
         return {"groups": [], "to_drop": [], "protected": protected_cols}
@@ -156,7 +371,7 @@ def find_highly_correlated_groups(
     # Calcul de la matrice de corrélation
     df_corr = df.drop(columns=all_exclude_cols, errors='ignore') if all_exclude_cols else df.copy()
     
-    # 🔧 VALIDATION INTERMÉDIAIRE (NOUVELLE)
+    # 🔧 VALIDATION INTERMÉDIAIRE RENFORCÉE
     if df_corr.empty:
         print("⚠️ Aucune colonne à analyser après exclusions")
         return {"groups": [], "to_drop": [], "protected": protected_cols}
@@ -179,7 +394,7 @@ def find_highly_correlated_groups(
             groups.append(group)
             visited.update(group)
 
-    # 🛡️ Création de la liste to_drop avec protection
+    # 🛡️ Création de la liste to_drop avec protection RENFORCÉE
     to_drop = []
     for group in groups:
         # Dans chaque groupe, on garde le premier ET les colonnes protégées
@@ -207,25 +422,25 @@ def find_highly_correlated_groups(
         except Exception as e:
             print(f"⚠️ Erreur dans la visualisation: {e}")
 
-    # 🛡️ Vérification finale de protection
+    # 🛡️ Vérification finale de protection RENFORCÉE
     protected_in_drop = set(to_drop) & set(protected_cols)
     if protected_in_drop:
         print(f"🛡️ PROTECTION ACTIVÉE: Retrait de {protected_in_drop} de la liste de suppression")
         to_drop = [col for col in to_drop if col not in protected_cols]
 
-    # 🔧 CONSTRUCTION ET VALIDATION DU RETOUR (NOUVELLE)
+    # 🔧 CONSTRUCTION ET VALIDATION DU RETOUR RENFORCÉE
     result = {
         "groups": groups,
         "to_drop": to_drop,
         "protected": protected_cols
     }
     
-    # Validation du type de retour
-    assert isinstance(result, dict), "Le retour doit être un dictionnaire"
+    # Validation stricte du type de retour
+    assert isinstance(result, dict), f"Le retour doit être un dictionnaire, reçu: {type(result)}"
     assert "groups" in result, "La clé 'groups' doit être présente"
-    assert isinstance(result["groups"], list), "groups doit être une liste"
-    assert isinstance(result["to_drop"], list), "to_drop doit être une liste"
-    assert isinstance(result["protected"], list), "protected doit être une liste"
+    assert isinstance(result["groups"], list), f"groups doit être une liste, reçu: {type(result['groups'])}"
+    assert isinstance(result["to_drop"], list), f"to_drop doit être une liste, reçu: {type(result['to_drop'])}"
+    assert isinstance(result["protected"], list), f"protected doit être une liste, reçu: {type(result['protected'])}"
 
     return result
 
@@ -243,18 +458,7 @@ def drop_correlated_duplicates(
     """
     Supprime les variables corrélées avec protection et ordre des colonnes optimisé.
     
-    Args:
-        df: DataFrame d'entrée
-        groups: Groupes de variables corrélées
-        target_col: Variable cible
-        extra_cols: Colonnes supplémentaires à conserver
-        protected_cols: Colonnes à protéger (défaut: ['X4'])
-        priority_cols: Colonnes prioritaires pour l'ordre (défaut: ['X1_trans', 'X2_trans', 'X3_trans', 'X4'])
-        verbose: Affichage détaillé
-        summary: Afficher le résumé
-        
-    Returns:
-        Tuple (DataFrame réduit, colonnes supprimées, colonnes gardées)
+    VERSION 3.0 - ROBUSTESSE RENFORCÉE
     """
     # 🛡️ Protection par défaut
     if protected_cols is None:
@@ -264,17 +468,21 @@ def drop_correlated_duplicates(
     if priority_cols is None:
         priority_cols = ['X1_trans', 'X2_trans', 'X3_trans', 'X4']
     
-    # 🔧 VALIDATION D'ENTRÉE (NOUVELLE)
+    # 🔧 VALIDATION D'ENTRÉE RENFORCÉE
     if not isinstance(groups, list):
-        print(f"⚠️ groups doit être une liste, reçu: {type(groups)}")
-        groups = []
+        print(f"⚠️ groups doit être une liste, reçu: {type(groups)} - conversion forcée")
+        groups = list(groups) if groups else []
     
     to_drop, to_keep = [], []
 
-    # Traitement des groupes corrélés
+    # Traitement des groupes corrélés avec validation
     for group in groups:
-        if not group or not isinstance(group, list):
+        if not group or not isinstance(group, (list, tuple)):
+            if verbose:
+                print(f"⚠️ Groupe invalide ignoré: {group}")
             continue
+        
+        group = list(group)  # Conversion sécurisée
         
         # 🛡️ Séparer les colonnes protégées des autres
         protected_in_group = [col for col in group if col in protected_cols]
@@ -361,68 +569,13 @@ def drop_correlated_duplicates(
     return df_reduced, to_drop, to_keep
 
 
-def apply_collinearity_filter(
-    df: pd.DataFrame, 
-    cols_to_drop: List[str], 
-    protected_cols: List[str] = None, 
-    display_info: bool = True
-) -> pd.DataFrame:
-    """
-    Supprime les colonnes corrélées en protégeant certaines colonnes.
-    
-    Args:
-        df: DataFrame d'entrée
-        cols_to_drop: Colonnes à supprimer
-        protected_cols: Colonnes à protéger (défaut: ['X4'])
-        display_info: Afficher les informations
-        
-    Returns:
-        DataFrame filtré
-    """
-    # 🛡️ Protection par défaut
-    if protected_cols is None:
-        protected_cols = ['X4']
-    
-    # 🛡️ Retirer les colonnes protégées de la liste de suppression
-    original_drop_count = len(cols_to_drop)
-    cols_to_drop_filtered = [col for col in cols_to_drop if col not in protected_cols]
-    protected_saved = original_drop_count - len(cols_to_drop_filtered)
-    
-    if protected_saved > 0 and display_info:
-        saved_cols = [col for col in cols_to_drop if col in protected_cols]
-        print(f"🛡️ {protected_saved} colonnes protégées de la suppression : {saved_cols}")
-    
-    # Suppression sécurisée
-    df_filtered = df.drop(columns=[col for col in cols_to_drop_filtered if col in df.columns])
-    
-    if display_info:
-        print(f"✅ Colonnes supprimées : {len(cols_to_drop_filtered)}")
-        print(f"📏 Dimensions finales : {df_filtered.shape}")
-        
-        # 🛡️ Vérification finale que les colonnes protégées sont présentes
-        for protected in protected_cols:
-            if protected in df.columns:
-                status = "✅" if protected in df_filtered.columns else "❌"
-                print(f"🛡️ {protected} : {status}")
-    
-    return df_filtered
-
-
 # ============================================================================
-# 3. FONCTIONS DE VALIDATION ET PROTECTION X4
+# 4. FONCTIONS DE VALIDATION ET PROTECTION X4
 # ============================================================================
 
 def validate_x4_presence(df: pd.DataFrame, step_name: str = "", verbose: bool = True) -> bool:
     """
     Valide que X4 est présente et correcte dans le DataFrame.
-    
-    Args:
-        df: DataFrame à vérifier
-        step_name: Nom de l'étape (pour l'affichage)
-        verbose: Affichage des informations
-        
-    Returns:
-        True si X4 est présente et correcte
     """
     if 'X4' not in df.columns:
         if verbose:
@@ -446,13 +599,6 @@ def validate_x4_presence(df: pd.DataFrame, step_name: str = "", verbose: bool = 
 def quick_x4_check(df_or_dict, name: str = "Dataset") -> bool:
     """
     Vérification rapide de X4 dans un DataFrame ou dictionnaire de DataFrames.
-    
-    Args:
-        df_or_dict: DataFrame ou dictionnaire de DataFrames
-        name: Nom pour l'affichage
-        
-    Returns:
-        True si X4 est présente dans tous les datasets
     """
     if isinstance(df_or_dict, dict):
         print(f"🔍 Vérification X4 dans {len(df_or_dict)} datasets:")
@@ -471,7 +617,7 @@ def quick_x4_check(df_or_dict, name: str = "Dataset") -> bool:
 
 
 # ============================================================================
-# 4. GESTION DE L'ORDRE DES COLONNES
+# 5. GESTION DE L'ORDRE DES COLONNES
 # ============================================================================
 
 def reorder_columns_priority(
@@ -481,14 +627,6 @@ def reorder_columns_priority(
 ) -> pd.DataFrame:
     """
     Réorganise les colonnes avec un ordre prioritaire.
-    
-    Args:
-        df: DataFrame à réorganiser
-        priority_cols: Colonnes prioritaires (défaut: ['X1_trans', 'X2_trans', 'X3_trans', 'X4'])
-        target_col: Variable cible à placer après les prioritaires
-        
-    Returns:
-        DataFrame avec colonnes réorganisées
     """
     if priority_cols is None:
         priority_cols = ['X1_trans', 'X2_trans', 'X3_trans', 'X4']
@@ -510,101 +648,8 @@ def reorder_columns_priority(
     return df[final_order]
 
 
-def check_column_order(
-    df: pd.DataFrame, 
-    expected_first: List[str] = None,
-    display_info: bool = True
-) -> bool:
-    """
-    Vérifie l'ordre des colonnes dans le DataFrame.
-    
-    Args:
-        df: DataFrame à vérifier
-        expected_first: Colonnes attendues en premier
-        display_info: Afficher les informations
-        
-    Returns:
-        True si l'ordre est correct
-    """
-    if expected_first is None:
-        expected_first = ['X1_trans', 'X2_trans', 'X3_trans', 'X4', 'outcome']
-    
-    current_order = df.columns.tolist()
-    
-    if display_info:
-        print(f"📌 Ordre actuel des colonnes (premiers 8) :")
-        print(f"   {current_order[:8]}")
-        
-        print(f"📌 Colonnes attendues en premier :")
-        print(f"   {expected_first}")
-    
-    # Vérifier si les colonnes attendues sont bien en début
-    matches = []
-    for i, expected_col in enumerate(expected_first):
-        if expected_col in current_order:
-            actual_position = current_order.index(expected_col)
-            expected_position = i
-            matches.append({
-                'column': expected_col,
-                'expected_pos': expected_position,
-                'actual_pos': actual_position,
-                'correct': actual_position == expected_position
-            })
-    
-    all_correct = all(match['correct'] for match in matches)
-    
-    if display_info:
-        print(f"📊 Vérification de l'ordre :")
-        for match in matches:
-            status = "✅" if match['correct'] else "❌"
-            print(f"   {status} {match['column']}: position {match['actual_pos']} (attendu: {match['expected_pos']})")
-    
-    return all_correct
-
-
-def reorganize_existing_datasets(
-    datasets_dict: Dict[str, pd.DataFrame],
-    priority_cols: List[str] = None,
-    target_col: str = "outcome",
-    verbose: bool = True
-) -> Dict[str, pd.DataFrame]:
-    """
-    Réorganise plusieurs datasets existants avec l'ordre de colonnes souhaité.
-    
-    Args:
-        datasets_dict: Dictionnaire {nom: DataFrame}
-        priority_cols: Colonnes prioritaires
-        target_col: Variable cible
-        verbose: Affichage détaillé
-        
-    Returns:
-        Dictionnaire des datasets réorganisés
-    """
-    if priority_cols is None:
-        priority_cols = ['X1_trans', 'X2_trans', 'X3_trans', 'X4']
-    
-    reorganized = {}
-    
-    for name, df in datasets_dict.items():
-        if df is None:
-            if verbose:
-                print(f"⚠️ {name}: DataFrame vide, ignoré")
-            reorganized[name] = df
-            continue
-        
-        # Réorganiser
-        df_reordered = reorder_columns_priority(df, priority_cols, target_col)
-        reorganized[name] = df_reordered
-        
-        if verbose:
-            print(f"✅ {name}: colonnes réorganisées")
-            print(f"   Premières colonnes : {df_reordered.columns[:min(6, len(df_reordered.columns))].tolist()}")
-    
-    return reorganized
-
-
 # ============================================================================
-# 5. PIPELINE PRINCIPAL DE PRÉTRAITEMENT (CORRIGÉ)
+# 6. PIPELINE PRINCIPAL DE PRÉTRAITEMENT (VERSION 3.0 COMPLÈTE)
 # ============================================================================
 
 def prepare_final_dataset(
@@ -624,15 +669,13 @@ def prepare_final_dataset(
     require_outcome: bool = True,
     protect_x4: bool = True,
     priority_cols: List[str] = None,
-    return_objects: bool = False
+    return_objects: bool = False,
+    use_comprehensive_correlation: bool = True
 ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, Dict]]:
     """
-    Pipeline de prétraitement complet avec protection de X4 et ordre des colonnes optimisé.
+    Pipeline de prétraitement complet avec toutes les corrections et améliorations.
     
-    CORRECTIONS:
-    - Validation robuste de find_highly_correlated_groups
-    - Gestion d'erreur pour les cas edge
-    - Type checking systématique
+    VERSION 3.0 - COMPLÈTEMENT CORRIGÉE ET OPTIMISÉE
     
     Args:
         file_path: Chemin vers le fichier de données
@@ -652,6 +695,7 @@ def prepare_final_dataset(
         protect_x4: Protéger X4 de la suppression
         priority_cols: Colonnes prioritaires pour l'ordre
         return_objects: Retourner aussi les objets de transformation
+        use_comprehensive_correlation: Utiliser la nouvelle méthode de corrélation
         
     Returns:
         DataFrame prétraité (et objets si demandé)
@@ -677,7 +721,7 @@ def prepare_final_dataset(
     }
 
     if display_info:
-        print("🔄 DÉMARRAGE DU PIPELINE DE PRÉTRAITEMENT (VERSION CORRIGÉE)")
+        print("🔄 DÉMARRAGE DU PIPELINE DE PRÉTRAITEMENT (VERSION 3.0)")
         print("=" * 70)
 
     # ========================================================================
@@ -786,90 +830,105 @@ def prepare_final_dataset(
         validate_x4_presence(df, "Après imputation", display_info)
 
     # ========================================================================
-    # ÉTAPE 5: RÉDUCTION DE LA COLINÉARITÉ (SECTION CORRIGÉE)
+    # ÉTAPE 5: RÉDUCTION DE LA COLINÉARITÉ (VERSION 3.0 COMPLÈTE)
     # ========================================================================
     
     if display_info:
         print(f"\n🔗 Étape 5: Réduction de la colinéarité (seuil={correlation_threshold})...")
     
     try:
-        binary_vars = [col for col in df.columns 
-                       if pd.api.types.is_integer_dtype(df[col]) and col != "outcome"]
-        
-        if display_info:
-            print(f"🔢 Variables binaires candidates : {len(binary_vars)}")
-
-        # 🔧 CORRECTION PRINCIPALE: Gestion robuste de find_highly_correlated_groups
-        if binary_vars:
-            groups_corr = find_highly_correlated_groups(
-                df[binary_vars], 
-                threshold=correlation_threshold,
-                protected_cols=protected_cols
+        if use_comprehensive_correlation:
+            # 🚀 NOUVELLE MÉTHODE COMPREHENSIVE (RECOMMANDÉE)
+            df_reduced, correlation_report = apply_correlation_reduction_to_dataset(
+                df, threshold=correlation_threshold
             )
+            df = df_reduced
+            transform_objects['correlation_info'] = correlation_report
             
-            # 🔧 VALIDATION DU TYPE DE RETOUR
-            if isinstance(groups_corr, list):
-                # Si c'est une liste (ancien format), on l'adapte
-                if display_info:
-                    print("⚠️ Format de retour détecté comme liste - conversion en dictionnaire")
-                groups_corr = {
-                    "groups": groups_corr,
-                    "to_drop": [],
-                    "protected": protected_cols
-                }
-            elif not isinstance(groups_corr, dict):
-                # Si ce n'est ni liste ni dict, erreur
-                if display_info:
-                    print(f"⚠️ Type de retour inattendu: {type(groups_corr)} - utilisation valeurs par défaut")
+        else:
+            # 🔧 ANCIENNE MÉTHODE CORRIGÉE (POUR COMPATIBILITÉ)
+            binary_vars = [col for col in df.columns 
+                           if pd.api.types.is_integer_dtype(df[col]) and col != "outcome"]
+            
+            if display_info:
+                print(f"🔢 Variables binaires candidates : {len(binary_vars)}")
+
+            if binary_vars:
+                groups_corr = find_highly_correlated_groups(
+                    df[binary_vars], 
+                    threshold=correlation_threshold,
+                    protected_cols=protected_cols
+                )
+                
+                # 🔧 VALIDATION DU TYPE DE RETOUR RENFORCÉE
+                if isinstance(groups_corr, list):
+                    if display_info:
+                        print("⚠️ Format de retour détecté comme liste - conversion en dictionnaire")
+                    groups_corr = {
+                        "groups": groups_corr,
+                        "to_drop": [],
+                        "protected": protected_cols
+                    }
+                elif not isinstance(groups_corr, dict):
+                    if display_info:
+                        print(f"⚠️ Type de retour inattendu: {type(groups_corr)} - utilisation valeurs par défaut")
+                    groups_corr = {
+                        "groups": [],
+                        "to_drop": [],
+                        "protected": protected_cols
+                    }
+                elif "groups" not in groups_corr:
+                    if display_info:
+                        print("⚠️ Clé 'groups' manquante - ajout de structure par défaut")
+                    groups_corr["groups"] = []
+                    if "to_drop" not in groups_corr:
+                        groups_corr["to_drop"] = []
+                    if "protected" not in groups_corr:
+                        groups_corr["protected"] = protected_cols
+                
+                # Stockage des informations de corrélation
+                transform_objects['correlation_info'] = groups_corr
+                
+            else:
+                # Pas de variables binaires à analyser
                 groups_corr = {
                     "groups": [],
                     "to_drop": [],
                     "protected": protected_cols
                 }
-            elif "groups" not in groups_corr:
-                # Si c'est un dict mais sans la clé "groups"
                 if display_info:
-                    print("⚠️ Clé 'groups' manquante - ajout de structure par défaut")
-                groups_corr["groups"] = []
-                if "to_drop" not in groups_corr:
-                    groups_corr["to_drop"] = []
-                if "protected" not in groups_corr:
-                    groups_corr["protected"] = protected_cols
-            
-            # Stockage des informations de corrélation
-            transform_objects['correlation_info'] = groups_corr
-            
-        else:
-            # Pas de variables binaires à analyser
-            groups_corr = {
-                "groups": [],
-                "to_drop": [],
-                "protected": protected_cols
-            }
-            if display_info:
-                print("⚠️ Aucune variable binaire trouvée pour l'analyse de corrélation")
+                    print("⚠️ Aucune variable binaire trouvée pour l'analyse de corrélation")
 
-        target_col = "outcome" if "outcome" in df.columns and require_outcome else None
+            target_col = "outcome" if "outcome" in df.columns and require_outcome else None
 
-        # 🛡️ Protection dans drop_correlated_duplicates
-        df_reduced, dropped_cols, kept_cols = drop_correlated_duplicates(
-            df=df,
-            groups=groups_corr["groups"],  # ✅ Maintenant sûr d'accéder à cette clé
-            target_col=target_col,
-            extra_cols=mar_cols + mcar_cols,
-            protected_cols=protected_cols,
-            priority_cols=priority_cols,
-            verbose=False,
-            summary=display_info
-        )
-        
-        # Réassignation du DataFrame
-        df = df_reduced
+            # 🛡️ Protection dans drop_correlated_duplicates
+            df_reduced, dropped_cols, kept_cols = drop_correlated_duplicates(
+                df=df,
+                groups=groups_corr["groups"],
+                target_col=target_col,
+                extra_cols=mar_cols + mcar_cols,
+                protected_cols=protected_cols,
+                priority_cols=priority_cols,
+                verbose=False,
+                summary=display_info
+            )
+            
+            # Réassignation du DataFrame
+            df = df_reduced
         
     except Exception as e:
         print(f"❌ Erreur lors de la réduction de colinéarité : {e}")
         if display_info:
             print("⚠️ Poursuite sans réduction de colinéarité...")
+        
+        # Mode dégradé - Pas de réduction
+        if 'correlation_info' not in transform_objects:
+            transform_objects['correlation_info'] = {
+                "error": str(e),
+                "original_shape": df.shape,
+                "reduced_shape": df.shape,
+                "dimension_reduction": 0
+            }
     
     # 🛡️ Validation X4 après réduction colinéarité
     if protect_x4:
@@ -878,6 +937,8 @@ def prepare_final_dataset(
     # ========================================================================
     # ÉTAPE 6: SUPPRESSION DES OUTLIERS (OPTIONNELLE)
     # ========================================================================
+    
+    target_col = "outcome" if "outcome" in df.columns and require_outcome else None
     
     if drop_outliers and target_col:
         if display_info:
@@ -937,26 +998,11 @@ def prepare_final_dataset(
         print(f"\n📌 Étape 8: Réorganisation finale des colonnes...")
     
     try:
-        # Colonnes actuelles
-        current_cols = df.columns.tolist()
-        
-        # 1. Variables prioritaires (en premier)
-        final_priority = [col for col in priority_cols if col in current_cols]
-        
-        # 2. Variable cible (après les prioritaires)
-        final_target = [target_col] if target_col and target_col in current_cols else []
-        
-        # 3. Toutes les autres colonnes (dans l'ordre actuel)
-        final_others = [col for col in current_cols if col not in final_priority + final_target]
-        
-        # Ordre final : prioritaires → cible → reste
-        final_order = final_priority + final_target + final_others
-        
-        # Réorganiser le DataFrame
-        df = df[final_order]
+        # Utiliser la fonction dédiée pour la réorganisation
+        df = reorder_columns_priority(df, priority_cols, target_col)
         
         if display_info:
-            print(f"📌 Ordre final : {final_priority} → {final_target} → {len(final_others)} autres")
+            print(f"📌 Ordre final : {priority_cols} → [{target_col}] → autres")
             print(f"📌 Premières colonnes : {df.columns[:min(8, len(df.columns))].tolist()}")
     
     except Exception as e:
@@ -1003,7 +1049,7 @@ def prepare_final_dataset(
 
     if display_info:
         print("\n" + "=" * 70)
-        print("🎉 PIPELINE DE PRÉTRAITEMENT TERMINÉ AVEC SUCCÈS")
+        print("🎉 PIPELINE DE PRÉTRAITEMENT TERMINÉ AVEC SUCCÈS (VERSION 3.0)")
         print("=" * 70)
 
     # Retour selon les options
@@ -1014,7 +1060,7 @@ def prepare_final_dataset(
 
 
 # ============================================================================
-# 6. FONCTIONS UTILITAIRES POUR DATASETS EXISTANTS
+# 7. FONCTIONS UTILITAIRES POUR DATASETS EXISTANTS
 # ============================================================================
 
 def apply_full_preprocessing_to_existing(
@@ -1090,413 +1136,8 @@ def batch_process_datasets(
     return processed_datasets
 
 
-def validate_all_datasets(
-    datasets_dict: Dict[str, pd.DataFrame],
-    expected_cols: List[str] = None,
-    protect_x4: bool = True
-) -> Dict[str, Dict]:
-    """
-    Valide la qualité de plusieurs datasets.
-    
-    Args:
-        datasets_dict: Dictionnaire des datasets à valider
-        expected_cols: Colonnes attendues en premier
-        protect_x4: Vérifier la présence de X4
-        
-    Returns:
-        Dictionnaire des rapports de validation
-    """
-    if expected_cols is None:
-        expected_cols = ['X1_trans', 'X2_trans', 'X3_trans', 'X4', 'outcome']
-    
-    validation_reports = {}
-    
-    for name, df in datasets_dict.items():
-        if df is None:
-            validation_reports[name] = {'status': 'error', 'message': 'DataFrame vide'}
-            continue
-        
-        report = {
-            'status': 'success',
-            'shape': df.shape,
-            'columns_order_correct': check_column_order(df, expected_cols, display_info=False),
-            'has_x4': 'X4' in df.columns if protect_x4 else True,
-            'has_outcome': 'outcome' in df.columns,
-            'missing_values': df.isnull().sum().sum(),
-            'first_columns': df.columns[:min(8, len(df.columns))].tolist()
-        }
-        
-        # Score de qualité global
-        quality_checks = [
-            report['columns_order_correct'],
-            report['has_x4'],
-            report['has_outcome'],
-            report['missing_values'] == 0
-        ]
-        report['quality_score'] = sum(quality_checks) / len(quality_checks)
-        
-        validation_reports[name] = report
-    
-    return validation_reports
-
-
-def print_validation_summary(validation_reports: Dict[str, Dict]):
-    """
-    Affiche un résumé des validations.
-    
-    Args:
-        validation_reports: Rapports de validation
-    """
-    print("\n📊 RÉSUMÉ DE LA VALIDATION DES DATASETS")
-    print("=" * 60)
-    
-    for name, report in validation_reports.items():
-        if report['status'] == 'error':
-            print(f"❌ {name}: {report['message']}")
-            continue
-        
-        quality = report['quality_score']
-        status_icon = "✅" if quality == 1.0 else "⚠️" if quality >= 0.75 else "❌"
-        
-        print(f"{status_icon} {name}:")
-        print(f"   📐 Shape: {report['shape']}")
-        print(f"   🎯 Score qualité: {quality:.2f}/1.0")
-        print(f"   📌 Ordre colonnes: {'✅' if report['columns_order_correct'] else '❌'}")
-        print(f"   🛡️ X4 présente: {'✅' if report['has_x4'] else '❌'}")
-        print(f"   🎯 Outcome présente: {'✅' if report['has_outcome'] else '❌'}")
-        print(f"   💧 Valeurs manquantes: {report['missing_values']}")
-        print(f"   📋 Premières colonnes: {report['first_columns']}")
-        print()
-
-
 # ============================================================================
-# 7. FONCTIONS DE DIAGNOSTIC ET DEBUG (AMÉLIORÉES)
-# ============================================================================
-
-def diagnose_pipeline_issue(
-    file_path: Union[str, Path],
-    step_by_step: bool = True,
-    **kwargs
-) -> Dict[str, any]:
-    """
-    Diagnostique les problèmes potentiels dans le pipeline.
-    
-    Args:
-        file_path: Chemin vers le fichier de données
-        step_by_step: Exécuter étape par étape avec validation
-        **kwargs: Arguments pour prepare_final_dataset
-        
-    Returns:
-        Dictionnaire avec les résultats de chaque étape
-    """
-    print("🔍 DIAGNOSTIC DU PIPELINE (VERSION AMÉLIORÉE)")
-    print("=" * 60)
-    
-    results = {}
-    
-    try:
-        # Test de chargement
-        print("📂 Test de chargement...")
-        df = load_data(file_path, display_info=False, encode_target=True)
-        results['loading'] = {
-            'status': 'success',
-            'shape': df.shape,
-            'has_x4': 'X4' in df.columns,
-            'has_outcome': 'outcome' in df.columns,
-            'columns': df.columns.tolist()
-        }
-        print(f"✅ Chargement OK: {df.shape}")
-        
-        if step_by_step:
-            # Test de chaque étape
-            steps = [
-                ('conversion_x4', lambda d: convert_X4_to_int(d, verbose=False)),
-                ('yeo_johnson', lambda d: apply_yeojohnson(d, ['X1', 'X2', 'X3'])),
-                ('correlation_analysis', lambda d: test_correlation_step(d)),
-            ]
-            
-            for step_name, step_func in steps:
-                try:
-                    df = step_func(df)
-                    results[step_name] = {
-                        'status': 'success',
-                        'shape': df.shape,
-                        'has_x4': 'X4' in df.columns
-                    }
-                    print(f"✅ {step_name} OK: {df.shape}")
-                except Exception as e:
-                    results[step_name] = {
-                        'status': 'error',
-                        'error': str(e)
-                    }
-                    print(f"❌ {step_name} ERREUR: {e}")
-                    break
-        
-    except Exception as e:
-        results['loading'] = {
-            'status': 'error',
-            'error': str(e)
-        }
-        print(f"❌ Chargement ERREUR: {e}")
-    
-    return results
-
-
-def test_correlation_step(df: pd.DataFrame) -> pd.DataFrame:
-    """Teste spécifiquement l'étape de corrélation."""
-    binary_vars = [col for col in df.columns 
-                   if pd.api.types.is_integer_dtype(df[col]) and col != "outcome"]
-    
-    if not binary_vars:
-        print("⚠️ Aucune variable binaire pour test de corrélation")
-        return df
-    
-    groups_corr = find_highly_correlated_groups(
-        df[binary_vars], 
-        threshold=0.90,
-        protected_cols=['X4']
-    )
-    
-    print(f"🔧 Test corrélation - Type retour: {type(groups_corr)}")
-    print(f"🔧 Contenu: {groups_corr}")
-    
-    # Test d'accès
-    if isinstance(groups_corr, dict) and "groups" in groups_corr:
-        print(f"✅ Accès groups réussi: {len(groups_corr['groups'])} groupes")
-    else:
-        raise ValueError(f"Format retour incorrect: {type(groups_corr)}")
-    
-    return df
-
-
-def quick_pipeline_test(file_path: Union[str, Path]) -> bool:
-    """Test rapide du pipeline complet."""
-    print("⚡ TEST RAPIDE DU PIPELINE COMPLET")
-    print("=" * 40)
-    
-    try:
-        df_result = prepare_final_dataset(
-            file_path=file_path,
-            strategy="mixed_mar_mcar",
-            mar_method="knn",
-            correlation_threshold=0.90,
-            drop_outliers=False,
-            display_info=False
-        )
-        
-        # Validations
-        has_x4 = 'X4' in df_result.columns
-        has_outcome = 'outcome' in df_result.columns
-        no_missing = df_result.isnull().sum().sum() == 0
-        
-        print(f"✅ Pipeline exécuté avec succès")
-        print(f"📊 Shape finale: {df_result.shape}")
-        print(f"🛡️ X4 présente: {'✅' if has_x4 else '❌'}")
-        print(f"🎯 Outcome présente: {'✅' if has_outcome else '❌'}")
-        print(f"💧 Pas de valeurs manquantes: {'✅' if no_missing else '❌'}")
-        
-        return True
-        
-    except Exception as e:
-        print(f"❌ Erreur dans le pipeline: {e}")
-        return False
-
-
-# ============================================================================
-# 8. FONCTIONS D'EXPORT ET SAUVEGARDE AVANCÉES
-# ============================================================================
-
-def export_datasets_multiple_formats(
-    datasets_dict: Dict[str, pd.DataFrame],
-    output_dir: Union[str, Path],
-    formats: List[str] = ['parquet', 'csv'],
-    compress: bool = True
-) -> Dict[str, Dict[str, Path]]:
-    """
-    Exporte les datasets dans plusieurs formats.
-    
-    Args:
-        datasets_dict: Dictionnaire des datasets
-        output_dir: Dossier de sortie
-        formats: Formats d'export ('parquet', 'csv', 'xlsx')
-        compress: Compresser les fichiers
-        
-    Returns:
-        Dictionnaire des chemins de sauvegarde
-    """
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    export_paths = {}
-    
-    for dataset_name, df in datasets_dict.items():
-        if df is None:
-            continue
-        
-        export_paths[dataset_name] = {}
-        
-        for fmt in formats:
-            try:
-                if fmt == 'parquet':
-                    file_path = output_dir / f"{dataset_name}.parquet"
-                    df.to_parquet(file_path, index=False, compression='snappy' if compress else None)
-                    
-                elif fmt == 'csv':
-                    file_path = output_dir / f"{dataset_name}.csv"
-                    compression = 'gzip' if compress else None
-                    if compression:
-                        file_path = file_path.with_suffix('.csv.gz')
-                    df.to_csv(file_path, index=False, compression=compression)
-                    
-                elif fmt == 'xlsx':
-                    file_path = output_dir / f"{dataset_name}.xlsx"
-                    df.to_excel(file_path, index=False)
-                
-                export_paths[dataset_name][fmt] = file_path
-                print(f"💾 {dataset_name}.{fmt} sauvegardé: {file_path}")
-                
-            except Exception as e:
-                print(f"❌ Erreur sauvegarde {dataset_name}.{fmt}: {e}")
-    
-    return export_paths
-
-
-def create_preprocessing_report(
-    datasets_dict: Dict[str, pd.DataFrame],
-    validation_reports: Dict[str, Dict],
-    output_path: Union[str, Path],
-    transform_objects: Dict = None
-) -> None:
-    """
-    Crée un rapport détaillé du prétraitement.
-    
-    Args:
-        datasets_dict: Dictionnaire des datasets
-        validation_reports: Rapports de validation
-        output_path: Chemin de sauvegarde du rapport
-        transform_objects: Objets de transformation utilisés
-    """
-    from datetime import datetime
-    
-    report_content = f"""
-# RAPPORT DE PRÉTRAITEMENT STA211 - VERSION CORRIGÉE
-Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-## Résumé
-
-- **Nombre de datasets traités**: {len(datasets_dict)}
-- **Datasets valides**: {sum(1 for r in validation_reports.values() if r.get('status') == 'success')}
-- **Pipeline version**: 2.1 (Corrigée)
-
-## Corrections apportées
-
-- ✅ Fix TypeError dans find_highly_correlated_groups
-- ✅ Validation robuste des types de retour
-- ✅ Gestion d'erreurs améliorée à chaque étape
-- ✅ Protection X4 renforcée
-
-## Détails par dataset
-
-"""
-    
-    for name, report in validation_reports.items():
-        if report['status'] == 'error':
-            report_content += f"### ❌ {name}\n- **Statut**: Erreur\n- **Message**: {report['message']}\n\n"
-            continue
-        
-        df = datasets_dict[name]
-        report_content += f"""### ✅ {name}
-
-- **Dimensions**: {report['shape']}
-- **Score qualité**: {report['quality_score']:.2f}/1.0
-- **X4 présente**: {'✅' if report['has_x4'] else '❌'}
-- **Outcome présente**: {'✅' if report['has_outcome'] else '❌'}
-- **Valeurs manquantes**: {report['missing_values']}
-- **Premières colonnes**: {', '.join(report['first_columns'])}
-
-#### Statistiques descriptives (premières variables)
-```
-{df[df.columns[:5]].describe().round(3).to_string()}
-```
-
-"""
-    
-    # Informations sur les transformations si disponibles
-    if transform_objects:
-        report_content += "\n## Objets de transformation\n\n"
-        for obj_name, obj in transform_objects.items():
-            if obj is not None:
-                report_content += f"- **{obj_name}**: {type(obj).__name__}\n"
-    
-    # Sauvegarde du rapport
-    try:
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(report_content)
-        print(f"📝 Rapport sauvegardé: {output_path}")
-    except Exception as e:
-        print(f"❌ Erreur sauvegarde rapport: {e}")
-
-
-# ============================================================================
-# 9. FONCTIONS DE TEST ET VALIDATION
-# ============================================================================
-
-def run_comprehensive_test(file_path: Union[str, Path]) -> Dict:
-    """Execute un test complet du pipeline avec diagnostic."""
-    
-    print("🧪 TEST COMPLET DU PIPELINE CORRIGÉ")
-    print("=" * 50)
-    
-    # Test 1: Pipeline de base
-    print("\n1️⃣ Test pipeline de base...")
-    basic_success = quick_pipeline_test(file_path)
-    
-    # Test 2: Pipeline avec objets
-    print("\n2️⃣ Test pipeline avec objets de transformation...")
-    try:
-        df_result, transform_objects = prepare_final_dataset(
-            file_path=file_path,
-            return_objects=True,
-            display_info=False
-        )
-        objects_success = True
-        print("✅ Pipeline avec objets réussi")
-    except Exception as e:
-        objects_success = False
-        print(f"❌ Pipeline avec objets échoué: {e}")
-        transform_objects = {}
-    
-    # Test 3: Diagnostic détaillé
-    print("\n3️⃣ Diagnostic détaillé...")
-    diagnostic_results = diagnose_pipeline_issue(file_path, step_by_step=True)
-    
-    # Test 4: Validation X4
-    print("\n4️⃣ Validation protection X4...")
-    x4_protected = True
-    if basic_success:
-        df_test = prepare_final_dataset(file_path, display_info=False)
-        x4_protected = 'X4' in df_test.columns
-        print(f"🛡️ X4 protégée: {'✅' if x4_protected else '❌'}")
-    
-    # Résumé final
-    print("\n📊 RÉSUMÉ DU TEST COMPLET")
-    print("=" * 30)
-    print(f"Pipeline de base: {'✅' if basic_success else '❌'}")
-    print(f"Pipeline avec objets: {'✅' if objects_success else '❌'}")
-    print(f"Protection X4: {'✅' if x4_protected else '❌'}")
-    print(f"Diagnostic: {'✅' if all(r.get('status') == 'success' for r in diagnostic_results.values()) else '⚠️'}")
-    
-    return {
-        'basic_success': basic_success,
-        'objects_success': objects_success,
-        'x4_protected': x4_protected,
-        'diagnostic_results': diagnostic_results,
-        'transform_objects': transform_objects if objects_success else {}
-    }
-
-
-# ============================================================================
-# 10. FONCTIONS D'UTILISATION SIMPLIFIÉE
+# 8. FONCTIONS DE DIAGNOSTIC ET DEBUG AVANCÉES
 # ============================================================================
 
 def prepare_dataset_safe(file_path: Union[str, Path], **kwargs) -> pd.DataFrame:
@@ -1510,7 +1151,7 @@ def prepare_dataset_safe(file_path: Union[str, Path], **kwargs) -> pd.DataFrame:
     Returns:
         DataFrame prétraité
     """
-    print("🔒 PIPELINE SÉCURISÉ - VERSION CORRIGÉE")
+    print("🔒 PIPELINE SÉCURISÉ - VERSION 3.0")
     print("=" * 45)
     
     # Paramètres par défaut sécurisés
@@ -1520,7 +1161,8 @@ def prepare_dataset_safe(file_path: Union[str, Path], **kwargs) -> pd.DataFrame:
         'correlation_threshold': 0.90,
         'drop_outliers': False,
         'protect_x4': True,
-        'display_info': True
+        'display_info': True,
+        'use_comprehensive_correlation': True
     }
     
     # Fusion avec les paramètres utilisateur
@@ -1536,8 +1178,9 @@ def prepare_dataset_safe(file_path: Union[str, Path], **kwargs) -> pd.DataFrame:
         if "list indices must be integers" in str(e) or "groups" in str(e):
             print("🔧 Erreur de corrélation détectée - application du mode de récupération...")
             
-            # Mode de récupération avec seuil plus strict
+            # Mode de récupération avec méthode ancienne
             recovery_params = final_params.copy()
+            recovery_params['use_comprehensive_correlation'] = False
             recovery_params['correlation_threshold'] = 0.95
             recovery_params['display_info'] = True
             
@@ -1551,12 +1194,20 @@ def prepare_dataset_safe(file_path: Union[str, Path], **kwargs) -> pd.DataFrame:
                 
     except Exception as e:
         print(f"❌ Erreur critique: {e}")
-        print("🔍 Lancement du diagnostic...")
+        print("🔍 Mode dégradé activé...")
         
-        # Diagnostic automatique
-        diagnostic = diagnose_pipeline_issue(file_path, step_by_step=False)
-        print("📋 Diagnostic terminé - consultez les résultats ci-dessus")
-        raise
+        # Mode dégradé - sans corrélation
+        degraded_params = final_params.copy()
+        degraded_params['correlation_threshold'] = 1.0  # Pas de suppression
+        degraded_params['display_info'] = True
+        
+        try:
+            df_result = prepare_final_dataset(file_path=file_path, **degraded_params)
+            print("⚠️ Pipeline exécuté en mode dégradé (sans réduction de corrélation)")
+            return df_result
+        except Exception as e3:
+            print(f"❌ Échec total: {e3}")
+            raise
 
 
 def get_preprocessing_summary(df: pd.DataFrame) -> Dict:
@@ -1634,221 +1285,584 @@ def print_preprocessing_summary(df: pd.DataFrame):
 
 
 # ============================================================================
-# 11. FONCTIONS DE COMPATIBILITÉ ET MIGRATION
+# 9. FONCTIONS DE VISUALISATION ET RAPPORT
 # ============================================================================
 
-def migrate_old_results(old_results_dir: Union[str, Path], new_results_dir: Union[str, Path]):
-    """
-    Migre les anciens résultats vers le nouveau format.
+def visualize_correlation_impact(corr_report, save_path=None):
+    """Visualise l'impact de la réduction de corrélation."""
     
-    Args:
-        old_results_dir: Dossier des anciens résultats
-        new_results_dir: Dossier pour les nouveaux résultats
-    """
-    old_dir = Path(old_results_dir)
-    new_dir = Path(new_results_dir)
-    new_dir.mkdir(parents=True, exist_ok=True)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
     
-    print("🔄 MIGRATION DES ANCIENS RÉSULTATS")
-    print("=" * 40)
+    # Graphique 1: Avant/Après
+    categories = ['Variables\noriginales', 'Variables\nfinales']
+    values = [corr_report['original_shape'][1], corr_report['reduced_shape'][1]]
+    colors = ['lightcoral', 'lightblue']
     
-    # Recherche des fichiers à migrer
-    old_files = list(old_dir.glob("*.csv")) + list(old_dir.glob("*.parquet"))
+    bars1 = ax1.bar(categories, values, color=colors)
+    ax1.set_title('Impact de la réduction de corrélation')
+    ax1.set_ylabel('Nombre de variables')
     
-    for old_file in old_files:
-        try:
-            print(f"🔄 Migration de {old_file.name}...")
-            
-            # Chargement
-            if old_file.suffix == '.csv':
-                df = pd.read_csv(old_file)
-            else:
-                df = pd.read_parquet(old_file)
-            
-            # Retraitement avec le nouveau pipeline
-            if 'X1' in df.columns:  # Dataset brut
-                df_new = apply_full_preprocessing_to_existing(df)
-            else:  # Dataset déjà traité - validation seulement
-                df_new = df.copy()
-                # Validation et correction si nécessaire
-                if 'X4' not in df_new.columns:
-                    print(f"⚠️ {old_file.name}: X4 manquante - fichier ignoré")
-                    continue
-            
-            # Sauvegarde dans le nouveau format
-            new_file = new_dir / f"migrated_{old_file.stem}.parquet"
-            df_new.to_parquet(new_file, index=False)
-            
-            print(f"✅ {old_file.name} → {new_file.name}")
-            
-        except Exception as e:
-            print(f"❌ Erreur migration {old_file.name}: {e}")
+    # Ajouter les valeurs sur les barres
+    for bar, value in zip(bars1, values):
+        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 20, 
+                str(value), ha='center', va='bottom', fontweight='bold')
     
-    print("🎉 Migration terminée")
+    # Graphique 2: Breakdown
+    labels = ['Variables\nsupprimées', 'Variables\nconservées']
+    sizes = [corr_report['vars_dropped'], corr_report['reduced_shape'][1]]
+    colors2 = ['lightcoral', 'lightgreen']
+    
+    ax2.pie(sizes, labels=labels, colors=colors2, autopct='%1.1f%%', startangle=90)
+    ax2.set_title('Répartition des variables')
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    
+    plt.show()
 
 
-def check_compatibility(df: pd.DataFrame) -> Dict:
+def create_preprocessing_report(
+    datasets_dict: Dict[str, pd.DataFrame],
+    validation_reports: Dict[str, Dict],
+    output_path: Union[str, Path],
+    transform_objects: Dict = None
+) -> None:
     """
-    Vérifie la compatibilité d'un dataset avec le nouveau pipeline.
+    Crée un rapport détaillé du prétraitement.
     
     Args:
-        df: DataFrame à vérifier
+        datasets_dict: Dictionnaire des datasets
+        validation_reports: Rapports de validation
+        output_path: Chemin de sauvegarde du rapport
+        transform_objects: Objets de transformation utilisés
+    """
+    from datetime import datetime
+    
+    report_content = f"""
+# RAPPORT DE PRÉTRAITEMENT STA211 - VERSION 3.0
+Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+## Résumé
+
+- **Nombre de datasets traités**: {len(datasets_dict)}
+- **Datasets valides**: {sum(1 for r in validation_reports.values() if r.get('status') == 'success')}
+- **Pipeline version**: 3.0 (Complètement Corrigée)
+
+## Améliorations Version 3.0
+
+- ✅ Intégration analyse de corrélation comprehensive
+- ✅ Réduction de dimensionnalité efficace
+- ✅ Fix TypeError complet dans find_highly_correlated_groups
+- ✅ Validation robuste des types de retour
+- ✅ Gestion d'erreurs améliorée à tous les niveaux
+- ✅ Protection X4 renforcée
+- ✅ Fonctions de diagnostic avancées
+
+## Détails par dataset
+
+"""
+    
+    for name, report in validation_reports.items():
+        if report['status'] == 'error':
+            report_content += f"### ❌ {name}\n- **Statut**: Erreur\n- **Message**: {report['message']}\n\n"
+            continue
         
-    Returns:
-        Rapport de compatibilité
-    """
-    compatibility = {
-        'version': '2.1',
-        'compatible': True,
-        'issues': [],
-        'recommendations': []
-    }
+        df = datasets_dict[name]
+        report_content += f"""### ✅ {name}
+
+- **Dimensions**: {report['shape']}
+- **Score qualité**: {report['quality_score']:.2f}/1.0
+- **X4 présente**: {'✅' if report['has_x4'] else '❌'}
+- **Outcome présente**: {'✅' if report['has_outcome'] else '❌'}
+- **Valeurs manquantes**: {report['missing_values']}
+- **Premières colonnes**: {', '.join(report['first_columns'])}
+
+#### Statistiques descriptives (premières variables)
+```
+{df[df.columns[:5]].describe().round(3).to_string()}
+```
+
+"""
     
-    # Vérifications de base
-    if 'X4' not in df.columns:
-        compatibility['compatible'] = False
-        compatibility['issues'].append("X4 manquante")
-        compatibility['recommendations'].append("Retraiter avec le pipeline corrigé")
+    # Informations sur les transformations si disponibles
+    if transform_objects:
+        report_content += "\n## Objets de transformation\n\n"
+        for obj_name, obj in transform_objects.items():
+            if obj is not None:
+                report_content += f"- **{obj_name}**: {type(obj).__name__}\n"
     
-    if 'outcome' not in df.columns:
-        compatibility['issues'].append("Variable cible manquante")
-        compatibility['recommendations'].append("Vérifier l'encodage de la variable cible")
-    
-    # Vérification des colonnes transformées
-    expected_transformed = ['X1_trans', 'X2_trans', 'X3_trans']
-    missing_transformed = [col for col in expected_transformed if col not in df.columns]
-    if missing_transformed:
-        compatibility['issues'].append(f"Colonnes transformées manquantes: {missing_transformed}")
-        compatibility['recommendations'].append("Appliquer la transformation Yeo-Johnson")
-    
-    # Vérification des valeurs manquantes
-    missing_count = df.isnull().sum().sum()
-    if missing_count > 0:
-        compatibility['issues'].append(f"{missing_count} valeurs manquantes détectées")
-        compatibility['recommendations'].append("Appliquer l'imputation MICE/KNN")
-    
-    # Vérification des doublons de colonnes
-    duplicate_cols = df.columns[df.columns.duplicated()].tolist()
-    if duplicate_cols:
-        compatibility['issues'].append(f"Colonnes dupliquées: {duplicate_cols}")
-        compatibility['recommendations'].append("Supprimer les doublons")
-    
-    return compatibility
+    # Sauvegarde du rapport
+    try:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(report_content)
+        print(f"📝 Rapport sauvegardé: {output_path}")
+    except Exception as e:
+        print(f"❌ Erreur sauvegarde rapport: {e}")
 
 
-def print_compatibility_report(compatibility: Dict):
-    """Affiche un rapport de compatibilité formaté."""
+# ============================================================================
+# 10. FONCTIONS DE TEST ET VALIDATION COMPLÈTES
+# ============================================================================
+
+def run_comprehensive_test(file_path: Union[str, Path]) -> Dict:
+    """Execute un test complet du pipeline avec diagnostic."""
     
-    print(f"\n🔍 RAPPORT DE COMPATIBILITÉ - VERSION {compatibility['version']}")
+    print("🧪 TEST COMPLET DU PIPELINE VERSION 3.0")
     print("=" * 50)
     
-    if compatibility['compatible']:
-        print("✅ Dataset compatible avec le pipeline actuel")
+    # Test 1: Pipeline de base
+    print("\n1️⃣ Test pipeline de base...")
+    try:
+        df_result = prepare_final_dataset(
+            file_path=file_path,
+            strategy="mixed_mar_mcar",
+            mar_method="knn",
+            correlation_threshold=0.90,
+            drop_outliers=False,
+            display_info=False
+        )
+        basic_success = True
+        print(f"✅ Pipeline de base réussi - Shape: {df_result.shape}")
+    except Exception as e:
+        basic_success = False
+        print(f"❌ Pipeline de base échoué: {e}")
+    
+    # Test 2: Pipeline avec objets
+    print("\n2️⃣ Test pipeline avec objets de transformation...")
+    try:
+        df_result, transform_objects = prepare_final_dataset(
+            file_path=file_path,
+            return_objects=True,
+            display_info=False
+        )
+        objects_success = True
+        print("✅ Pipeline avec objets réussi")
+    except Exception as e:
+        objects_success = False
+        print(f"❌ Pipeline avec objets échoué: {e}")
+        transform_objects = {}
+    
+    # Test 3: Méthode comprehensive de corrélation
+    print("\n3️⃣ Test méthode comprehensive de corrélation...")
+    try:
+        df_comprehensive = prepare_final_dataset(
+            file_path=file_path,
+            use_comprehensive_correlation=True,
+            display_info=False
+        )
+        comprehensive_success = True
+        print(f"✅ Méthode comprehensive réussie - Shape: {df_comprehensive.shape}")
+    except Exception as e:
+        comprehensive_success = False
+        print(f"❌ Méthode comprehensive échouée: {e}")
+    
+    # Test 4: Méthode ancienne (compatibilité)
+    print("\n4️⃣ Test méthode ancienne (compatibilité)...")
+    try:
+        df_legacy = prepare_final_dataset(
+            file_path=file_path,
+            use_comprehensive_correlation=False,
+            display_info=False
+        )
+        legacy_success = True
+        print(f"✅ Méthode ancienne réussie - Shape: {df_legacy.shape}")
+    except Exception as e:
+        legacy_success = False
+        print(f"❌ Méthode ancienne échouée: {e}")
+    
+    # Test 5: Validation X4
+    print("\n5️⃣ Validation protection X4...")
+    x4_protected = True
+    if basic_success:
+        x4_protected = 'X4' in df_result.columns
+        print(f"🛡️ X4 protégée: {'✅' if x4_protected else '❌'}")
+    
+    # Test 6: Pipeline sécurisé
+    print("\n6️⃣ Test pipeline sécurisé...")
+    try:
+        df_safe = prepare_dataset_safe(file_path)
+        safe_success = True
+        print(f"✅ Pipeline sécurisé réussi - Shape: {df_safe.shape}")
+    except Exception as e:
+        safe_success = False
+        print(f"❌ Pipeline sécurisé échoué: {e}")
+    
+    # Résumé final
+    print("\n📊 RÉSUMÉ DU TEST COMPLET")
+    print("=" * 30)
+    print(f"Pipeline de base: {'✅' if basic_success else '❌'}")
+    print(f"Pipeline avec objets: {'✅' if objects_success else '❌'}")
+    print(f"Méthode comprehensive: {'✅' if comprehensive_success else '❌'}")
+    print(f"Méthode ancienne: {'✅' if legacy_success else '❌'}")
+    print(f"Protection X4: {'✅' if x4_protected else '❌'}")
+    print(f"Pipeline sécurisé: {'✅' if safe_success else '❌'}")
+    
+    # Score global
+    tests = [basic_success, objects_success, comprehensive_success, 
+             legacy_success, x4_protected, safe_success]
+    score = sum(tests) / len(tests)
+    
+    if score == 1.0:
+        print(f"\n🏆 SCORE PARFAIT: {score:.0%} - Tous les tests réussis!")
+    elif score >= 0.8:
+        print(f"\n✅ SCORE EXCELLENT: {score:.0%} - Pipeline opérationnel")
+    elif score >= 0.6:
+        print(f"\n⚠️ SCORE CORRECT: {score:.0%} - Quelques problèmes détectés")
     else:
-        print("❌ Dataset non compatible - corrections nécessaires")
+        print(f"\n❌ SCORE FAIBLE: {score:.0%} - Révision nécessaire")
     
-    if compatibility['issues']:
-        print(f"\n⚠️ Problèmes détectés ({len(compatibility['issues'])}):")
-        for i, issue in enumerate(compatibility['issues'], 1):
-            print(f"   {i}. {issue}")
-    
-    if compatibility['recommendations']:
-        print(f"\n💡 Recommandations ({len(compatibility['recommendations'])}):")
-        for i, rec in enumerate(compatibility['recommendations'], 1):
-            print(f"   {i}. {rec}")
+    return {
+        'basic_success': basic_success,
+        'objects_success': objects_success,
+        'comprehensive_success': comprehensive_success,
+        'legacy_success': legacy_success,
+        'x4_protected': x4_protected,
+        'safe_success': safe_success,
+        'score': score,
+        'transform_objects': transform_objects if objects_success else {}
+    }
 
 
-def compare_preprocessing_results(
+def validate_all_datasets(
+    datasets_dict: Dict[str, pd.DataFrame],
+    expected_cols: List[str] = None,
+    protect_x4: bool = True
+) -> Dict[str, Dict]:
+    """
+    Valide la qualité de plusieurs datasets.
+    
+    Args:
+        datasets_dict: Dictionnaire des datasets à valider
+        expected_cols: Colonnes attendues en premier
+        protect_x4: Vérifier la présence de X4
+        
+    Returns:
+        Dictionnaire des rapports de validation
+    """
+    if expected_cols is None:
+        expected_cols = ['X1_trans', 'X2_trans', 'X3_trans', 'X4', 'outcome']
+    
+    validation_reports = {}
+    
+    for name, df in datasets_dict.items():
+        if df is None:
+            validation_reports[name] = {'status': 'error', 'message': 'DataFrame vide'}
+            continue
+        
+        # Vérification ordre des colonnes
+        current_order = df.columns.tolist()
+        columns_order_correct = True
+        for i, expected_col in enumerate(expected_cols[:5]):  # Vérifier les 5 premières
+            if expected_col in current_order:
+                actual_position = current_order.index(expected_col)
+                if actual_position != i:
+                    columns_order_correct = False
+                    break
+        
+        report = {
+            'status': 'success',
+            'shape': df.shape,
+            'columns_order_correct': columns_order_correct,
+            'has_x4': 'X4' in df.columns if protect_x4 else True,
+            'has_outcome': 'outcome' in df.columns,
+            'missing_values': df.isnull().sum().sum(),
+            'first_columns': df.columns[:min(8, len(df.columns))].tolist(),
+            'dimension_reduction': None,
+            'memory_usage': df.memory_usage(deep=True).sum() / 1024**2  # MB
+        }
+        
+        # Score de qualité global
+        quality_checks = [
+            report['columns_order_correct'],
+            report['has_x4'],
+            report['has_outcome'],
+            report['missing_values'] == 0,
+            report['shape'][1] < 1000,  # Réduction effective
+            report['shape'][0] > 1000   # Suffisamment d'échantillons
+        ]
+        report['quality_score'] = sum(quality_checks) / len(quality_checks)
+        
+        validation_reports[name] = report
+    
+    return validation_reports
+
+
+def print_validation_summary(validation_reports: Dict[str, Dict]):
+    """
+    Affiche un résumé des validations.
+    
+    Args:
+        validation_reports: Rapports de validation
+    """
+    print("\n📊 RÉSUMÉ DE LA VALIDATION DES DATASETS")
+    print("=" * 60)
+    
+    for name, report in validation_reports.items():
+        if report['status'] == 'error':
+            print(f"❌ {name}: {report['message']}")
+            continue
+        
+        quality = report['quality_score']
+        status_icon = "✅" if quality == 1.0 else "⚠️" if quality >= 0.75 else "❌"
+        
+        print(f"{status_icon} {name}:")
+        print(f"   📐 Shape: {report['shape']}")
+        print(f"   🎯 Score qualité: {quality:.2f}/1.0")
+        print(f"   📌 Ordre colonnes: {'✅' if report['columns_order_correct'] else '❌'}")
+        print(f"   🛡️ X4 présente: {'✅' if report['has_x4'] else '❌'}")
+        print(f"   🎯 Outcome présente: {'✅' if report['has_outcome'] else '❌'}")
+        print(f"   💧 Valeurs manquantes: {report['missing_values']}")
+        print(f"   💾 Mémoire: {report['memory_usage']:.1f} MB")
+        print(f"   📋 Premières colonnes: {report['first_columns'][:4]}...")
+        print()
+
+
+# ============================================================================
+# 11. FONCTIONS D'EXPORT ET SAUVEGARDE AVANCÉES
+# ============================================================================
+
+def export_datasets_multiple_formats(
+    datasets_dict: Dict[str, pd.DataFrame],
+    output_dir: Union[str, Path],
+    formats: List[str] = ['parquet', 'csv'],
+    compress: bool = True
+) -> Dict[str, Dict[str, Path]]:
+    """
+    Exporte les datasets dans plusieurs formats.
+    
+    Args:
+        datasets_dict: Dictionnaire des datasets
+        output_dir: Dossier de sortie
+        formats: Formats d'export ('parquet', 'csv', 'xlsx')
+        compress: Compresser les fichiers
+        
+    Returns:
+        Dictionnaire des chemins de sauvegarde
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    export_paths = {}
+    
+    for dataset_name, df in datasets_dict.items():
+        if df is None:
+            continue
+        
+        export_paths[dataset_name] = {}
+        
+        for fmt in formats:
+            try:
+                if fmt == 'parquet':
+                    file_path = output_dir / f"{dataset_name}.parquet"
+                    df.to_parquet(file_path, index=False, compression='snappy' if compress else None)
+                    
+                elif fmt == 'csv':
+                    file_path = output_dir / f"{dataset_name}.csv"
+                    compression = 'gzip' if compress else None
+                    if compression:
+                        file_path = file_path.with_suffix('.csv.gz')
+                    df.to_csv(file_path, index=False, compression=compression)
+                    
+                elif fmt == 'xlsx':
+                    file_path = output_dir / f"{dataset_name}.xlsx"
+                    df.to_excel(file_path, index=False)
+                
+                export_paths[dataset_name][fmt] = file_path
+                print(f"💾 {dataset_name}.{fmt} sauvegardé: {file_path}")
+                
+            except Exception as e:
+                print(f"❌ Erreur sauvegarde {dataset_name}.{fmt}: {e}")
+    
+    return export_paths
+
+
+# ============================================================================
+# 12. FONCTIONS DE COMPARAISON ET BENCHMARKING
+# ============================================================================
+
+def compare_preprocessing_methods(
     file_path: Union[str, Path],
-    configs: List[Dict],
-    config_names: List[str] = None
+    methods: List[str] = None,
+    thresholds: List[float] = None
 ) -> pd.DataFrame:
     """
-    Compare les résultats de différentes configurations de prétraitement.
+    Compare différentes méthodes de prétraitement.
     
     Args:
         file_path: Chemin vers le fichier de données
-        configs: Liste des configurations à tester
-        config_names: Noms des configurations
+        methods: Méthodes à comparer
+        thresholds: Seuils de corrélation à tester
         
     Returns:
         DataFrame de comparaison
     """
-    if config_names is None:
-        config_names = [f"Config_{i+1}" for i in range(len(configs))]
+    if methods is None:
+        methods = ['comprehensive', 'legacy']
+    
+    if thresholds is None:
+        thresholds = [0.85, 0.90, 0.95]
     
     results = []
     
-    for i, config in enumerate(configs):
-        print(f"\n🧪 Test configuration {config_names[i]}...")
-        
-        try:
-            df_result = prepare_final_dataset(
-                file_path=file_path,
-                display_info=False,
-                **config
-            )
+    for method in methods:
+        for threshold in thresholds:
+            config_name = f"{method}_t{threshold}"
+            print(f"\n🧪 Test {config_name}...")
             
-            result = {
-                'config_name': config_names[i],
-                'status': 'success',
-                'final_shape': df_result.shape,
-                'has_x4': 'X4' in df_result.columns,
-                'has_outcome': 'outcome' in df_result.columns,
-                'missing_values': df_result.isnull().sum().sum(),
-                'first_5_columns': df_result.columns[:5].tolist()
-            }
+            try:
+                start_time = pd.Timestamp.now()
+                
+                df_result = prepare_final_dataset(
+                    file_path=file_path,
+                    correlation_threshold=threshold,
+                    use_comprehensive_correlation=(method == 'comprehensive'),
+                    display_info=False
+                )
+                
+                end_time = pd.Timestamp.now()
+                duration = (end_time - start_time).total_seconds()
+                
+                result = {
+                    'method': method,
+                    'threshold': threshold,
+                    'config_name': config_name,
+                    'status': 'success',
+                    'final_shape': df_result.shape,
+                    'features_count': df_result.shape[1] - 1,  # -1 pour outcome
+                    'reduction_rate': 1 - (df_result.shape[1] / 1559),  # Baseline 1559
+                    'has_x4': 'X4' in df_result.columns,
+                    'has_outcome': 'outcome' in df_result.columns,
+                    'missing_values': df_result.isnull().sum().sum(),
+                    'duration_seconds': duration,
+                    'memory_usage_mb': df_result.memory_usage(deep=True).sum() / 1024**2
+                }
+                
+            except Exception as e:
+                result = {
+                    'method': method,
+                    'threshold': threshold,
+                    'config_name': config_name,
+                    'status': 'error',
+                    'error': str(e),
+                    'final_shape': None,
+                    'features_count': None,
+                    'reduction_rate': None,
+                    'has_x4': False,
+                    'has_outcome': False,
+                    'missing_values': None,
+                    'duration_seconds': None,
+                    'memory_usage_mb': None
+                }
             
-        except Exception as e:
-            result = {
-                'config_name': config_names[i],
-                'status': 'error',
-                'error': str(e),
-                'final_shape': None,
-                'has_x4': False,
-                'has_outcome': False,
-                'missing_values': None,
-                'first_5_columns': None
-            }
-        
-        results.append(result)
+            results.append(result)
     
     return pd.DataFrame(results)
 
 
 # ============================================================================
-# FIN DU MODULE - INFORMATIONS DE VERSION
+# FIN DU MODULE - INFORMATIONS DE VERSION ET UTILISATION
 # ============================================================================
 
-__version__ = "2.1"
-__status__ = "Corrigé"
-__corrections__ = [
-    "Fix TypeError dans find_highly_correlated_groups",
-    "Validation robuste des types de retour",
-    "Gestion d'erreurs améliorée",
-    "Protection X4 renforcée",
+__version__ = "3.0"
+__status__ = "Complètement Corrigé et Optimisé"
+__new_features__ = [
+    "Intégration analyse de corrélation comprehensive",
+    "Réduction de dimensionnalité efficace",
     "Fonctions de diagnostic avancées",
-    "Mode de récupération automatique"
+    "Pipeline modulaire et robuste",
+    "Fonctions de benchmarking et comparaison",
+    "Export multi-formats",
+    "Rapport automatique complet"
 ]
+__corrections__ = [
+    "Fix TypeError complet dans find_highly_correlated_groups",
+    "Validation robuste des types de retour",
+    "Gestion d'erreurs améliorée à tous les niveaux",
+    "Protection X4 renforcée",
+    "Mode de récupération automatique",
+    "Pipeline sécurisé avec fallbacks"
+]
+
 
 def print_version_info():
     """Affiche les informations de version du module."""
     print(f"\n📋 MODULE final_preprocessing.py")
     print(f"Version: {__version__}")
     print(f"Statut: {__status__}")
-    print(f"Corrections apportées:")
+    
+    print(f"\n🚀 NOUVELLES FONCTIONNALITÉS VERSION 3.0:")
+    for feature in __new_features__:
+        print(f"  ✨ {feature}")
+    
+    print(f"\n🔧 CORRECTIONS APPORTÉES:")
     for correction in __corrections__:
         print(f"  ✅ {correction}")
 
 
+def print_usage_examples():
+    """Affiche des exemples d'utilisation recommandés."""
+    print(f"\n🚀 EXEMPLES D'UTILISATION RECOMMANDÉS:")
+    
+    examples = """
+# 1. Utilisation basique (recommandée)
+df = prepare_dataset_safe('data_train.csv')
+
+# 2. Pipeline complet avec objets
+df, objects = prepare_final_dataset('data_train.csv', return_objects=True)
+
+# 3. Configuration personnalisée
+df = prepare_final_dataset(
+    'data_train.csv',
+    correlation_threshold=0.85,
+    use_comprehensive_correlation=True,
+    drop_outliers=False
+)
+
+# 4. Test complet du pipeline
+test_results = run_comprehensive_test('data_train.csv')
+
+# 5. Comparaison de méthodes
+comparison = compare_preprocessing_methods('data_train.csv')
+
+# 6. Traitement en lot
+datasets = {'train': 'data_train.csv', 'test': 'data_test.csv'}
+results = batch_process_datasets(datasets)
+
+# 7. Export multi-formats
+export_datasets_multiple_formats(
+    {'final': df}, 
+    'output/', 
+    formats=['parquet', 'csv', 'xlsx']
+)
+
+# 8. Résumé du preprocessing
+print_preprocessing_summary(df)
+
+# 9. Analyse de corrélation seule
+df_reduced, report = apply_correlation_reduction_to_dataset(df)
+
+# 10. Visualisation impact
+visualize_correlation_impact(report)
+"""
+    
+    print(examples)
+
+
 if __name__ == "__main__":
     print_version_info()
-    print(f"\n🚀 UTILISATION RECOMMANDÉE:")
-    print(f"   # Test rapide")
-    print(f"   df = prepare_dataset_safe('data_train.csv')")
-    print(f"   ")
-    print(f"   # Test complet")
-    print(f"   test_results = run_comprehensive_test('data_train.csv')")
-    print(f"   ")
-    print(f"   # Pipeline avec objets")
-    print(f"   df, objects = prepare_final_dataset('data_train.csv', return_objects=True)")
+    print_usage_examples()
+    
+    print(f"\n💡 CONSEILS D'UTILISATION:")
+    print("• Utilisez prepare_dataset_safe() pour une utilisation simple et sécurisée")
+    print("• Activez use_comprehensive_correlation=True pour une réduction optimale")
+    print("• Testez avec run_comprehensive_test() avant utilisation en production")
+    print("• Surveillez la protection X4 avec les fonctions de validation")
+    print("• Exportez en Parquet pour des performances optimales")
+    
+    print(f"\n🆘 EN CAS DE PROBLÈME:")
+    print("• Le pipeline sécurisé inclut des modes de récupération automatiques")
+    print("• Utilisez display_info=True pour diagnostiquer les problèmes")
+    print("• Les fonctions de validation permettent de vérifier l'intégrité")
+    print("• Consultez les rapports automatiques pour l'analyse détaillée")

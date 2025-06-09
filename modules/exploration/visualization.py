@@ -656,7 +656,7 @@ def plot_outlier_comparison(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     for col in cols:
-        fig, axes = plt.subplots(1, 2, figsize=(10, 3.5))
+        fig, axes = plt.subplots(1, 2, figsize=(8, 3))
 
         sns.boxplot(x=df_before[col], ax=axes[0], color='salmon')
         axes[0].set_title(f"{col} - Avant suppression")

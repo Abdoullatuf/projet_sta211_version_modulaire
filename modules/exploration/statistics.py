@@ -172,9 +172,6 @@ def find_highly_correlated_groups(df: pd.DataFrame, threshold: float = 0.90):
 
 
 
-
-
-
 def drop_correlated_duplicates(
     df: pd.DataFrame,
     groups: List[List[str]],

@@ -1,0 +1,4 @@
+# modules/modeling/__init__.py
+
+from .stacking_model_selection import train_and_select_best_stacking_model
+from .prediction_generator import generate_challenge_predictions

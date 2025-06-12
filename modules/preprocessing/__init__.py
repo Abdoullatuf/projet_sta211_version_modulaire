@@ -44,7 +44,7 @@ try:
         # 🔗 Gestion de la corrélation  
         find_highly_correlated_groups,
         drop_correlated_duplicates,
-        apply_collinearity_filter,
+        #apply_collinearity_filter,
         
         # 🛡️ Validation et protection X4
         validate_x4_presence,
@@ -52,7 +52,7 @@ try:
         
         # 📌 Gestion de l'ordre des colonnes
         reorder_columns_priority,
-        check_column_order,
+        #check_column_order,
         reorganize_existing_datasets,
         
         # 🚀 Pipeline principal

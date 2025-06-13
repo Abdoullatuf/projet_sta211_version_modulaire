@@ -35,20 +35,10 @@ from typing import List, Optional, Union, Dict, Tuple
 from sklearn.preprocessing import PowerTransformer
 
 from config.paths_config import setup_project_paths
-
-try:
-    from preprocessing.missing_values import handle_missing_values
-    from preprocessing.outliers import detect_and_remove_outliers
-    from preprocessing.data_loader import load_data
-except ImportError:  # modules archivés
-    from ..archive_unused.missing_values import handle_missing_values
-    from ..archive_unused.outliers import detect_and_remove_outliers
-    from ..archive_unused.data_loader import load_data
-
-try:
-    from exploration.visualization import save_fig
-except ImportError:
-    save_fig = None
+from preprocessing.missing_values import handle_missing_values
+from preprocessing.outliers import detect_and_remove_outliers
+from preprocessing.data_loader import load_data
+from exploration.visualization import save_fig
 
 
 # ============================================================================
@@ -426,10 +416,7 @@ def find_highly_correlated_groups(
             plt.tight_layout()
             
             if save_path:
-                if save_fig:
-                    save_fig(Path(save_path).name, directory=Path(save_path).parent, figsize=figsize)
-                else:
-                    plt.savefig(save_path)
+                save_fig(Path(save_path).name, directory=Path(save_path).parent, figsize=figsize)
             else:
                 plt.show()
         except Exception as e:

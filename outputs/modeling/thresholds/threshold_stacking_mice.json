@@ -1,6 +1,6 @@
 {
     "model": "Stacking",
     "dataset": "MICE",
-    "optimal_threshold": 0.7368,
-    "optimal_f1": 0.9091
+    "optimal_threshold": 0.7241,
+    "optimal_f1": 0.9254
 }

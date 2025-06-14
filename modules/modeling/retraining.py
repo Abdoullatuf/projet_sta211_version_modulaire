@@ -1,7 +1,7 @@
 
 #/modules/modeling/retraining.py
 
-
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, StratifiedKFold
 from sklearn.base import clone
 from imblearn.pipeline import Pipeline as ImbPipeline
 from imblearn.over_sampling import SMOTE
@@ -11,35 +11,25 @@ import pandas as pd
 import joblib
 from pathlib import Path
 
-def retrain_model_with_selected_features(model, X_train, y_train, X_test, y_test,
-                                         selected_features, model_name, dataset_name,
-                                         save_dir, apply_smote=True):
+def retrain_model_with_selected_features(
+    model, X_train, y_train, X_test, y_test,
+    selected_features, model_name, dataset_name,
+    save_dir, apply_smote=True,
+    param_grid: dict = None,
+    search_type: str = "grid",  # ➕ nouveau paramètre : 'grid' ou 'random'
+    n_iter: int = 30,           # ➕ applicable pour RandomizedSearch
+    cv: int = 5
+):
     """
-    Réentraîne un modèle avec les variables sélectionnées et sauvegarde le modèle final.
-
-    Args:
-        model: modèle entraîné initialement (sera cloné)
-        X_train, y_train: données d'entraînement
-        X_test, y_test: données de test (pour évaluation)
-        selected_features: liste des noms de variables à utiliser
-        model_name: nom du modèle (ex. "Stacking")
-        dataset_name: nom du dataset (ex. "MICE")
-        save_dir: répertoire de sauvegarde
-        apply_smote: booléen pour activer ou non SMOTE dans le pipeline
-
-    Returns:
-        model_fitted: le pipeline entraîné
-        f1: F1-score obtenu sur le test set
-        model_path: chemin du modèle sauvegardé
+    Réentraîne un modèle avec les variables sélectionnées, avec possibilité
+    d'optimisation des hyperparamètres par GridSearch ou RandomizedSearch.
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    # Sélection des variables
     X_train_sel = X_train[selected_features]
     X_test_sel = X_test[selected_features]
 
-    # Pipeline
     steps = [('scaler', StandardScaler())]
     if apply_smote:
         steps.append(('smote', SMOTE(random_state=42)))
@@ -47,14 +37,41 @@ def retrain_model_with_selected_features(model, X_train, y_train, X_test, y_test
 
     pipeline = ImbPipeline(steps)
 
-    # Entraînement
-    pipeline.fit(X_train_sel, y_train)
+    if param_grid:
+        if search_type == "grid":
+            search = GridSearchCV(
+                pipeline,
+                param_grid=param_grid,
+                scoring='f1',
+                cv=StratifiedKFold(n_splits=cv, shuffle=True, random_state=42),
+                n_jobs=-1,
+                verbose=1
+            )
+        elif search_type == "random":
+            search = RandomizedSearchCV(
+                pipeline,
+                param_distributions=param_grid,
+                n_iter=n_iter,
+                scoring='f1',
+                cv=StratifiedKFold(n_splits=cv, shuffle=True, random_state=42),
+                n_jobs=-1,
+                verbose=1,
+                random_state=42
+            )
+        else:
+            raise ValueError("search_type must be 'grid' or 'random'")
+
+        search.fit(X_train_sel, y_train)
+        pipeline = search.best_estimator_
+    else:
+        pipeline.fit(X_train_sel, y_train)
+
     y_pred = pipeline.predict(X_test_sel)
     f1 = f1_score(y_test, y_pred)
 
-    # Sauvegarde
     file_name = f"{model_name.lower()}_{dataset_name.lower()}_reduced.joblib".replace(" ", "_")
     model_path = save_dir / file_name
     joblib.dump(pipeline, model_path)
 
     return pipeline, f1, model_path
+

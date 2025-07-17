@@ -1,0 +1,11 @@
+{
+  "model": "SVM",
+  "imputation": "MICE",
+  "f1_test": 0.8992248062015504,
+  "precision_test": 0.9666666666666667,
+  "recall_test": 0.8405797101449275,
+  "auc_test": 0.9737211772364409,
+  "f1_validation": 0.9323,
+  "gap_val_test": 0.03307519379844959,
+  "threshold": 0.8147
+}

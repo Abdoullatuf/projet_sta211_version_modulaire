@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from typing import Union, Optional
-from config.paths_config import setup_project_paths
+from modules.config.paths_config import setup_project_paths
 from IPython.display import display
 
 

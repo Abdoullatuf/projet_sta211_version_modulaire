@@ -14,7 +14,7 @@ Contient les outils pour :
 - Comparaison des méthodes d'imputation
 - Export multi-format et rapports détaillés
 
-Version: 2.1 (Corrigée)
+Version: 2.1
 Auteur: Abdoullatuf
 Date: 2025
 """
@@ -44,7 +44,6 @@ try:
         # 🔗 Gestion de la corrélation  
         find_highly_correlated_groups,
         drop_correlated_duplicates,
-        #apply_collinearity_filter,
         
         # 🛡️ Validation et protection X4
         validate_x4_presence,
@@ -52,8 +51,6 @@ try:
         
         # 📌 Gestion de l'ordre des colonnes
         reorder_columns_priority,
-        #check_column_order,
-        reorganize_existing_datasets,
         
         # 🚀 Pipeline principal
         prepare_final_dataset,
@@ -63,9 +60,6 @@ try:
         batch_process_datasets,
         validate_all_datasets,
         print_validation_summary,
-        
-        # 🔍 Diagnostic et debug
-        diagnose_pipeline_issue,
         
         # 💾 Export et sauvegarde
         export_datasets_multiple_formats,

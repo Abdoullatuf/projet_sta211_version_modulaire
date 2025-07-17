@@ -1,6 +1,0 @@
-{
-    "model": "Stacking",
-    "dataset": "KNN",
-    "optimal_threshold": 0.1303,
-    "optimal_f1": 0.8205
-}

@@ -1,29 +1,19 @@
-# ============================================================================
-# 5. modules/config/__init__.py
-# ============================================================================
-
 """
-Module de configuration pour STA211.
+Package de configuration du projet STA211.
 
-Contient :
-- Configuration des chemins du projet
-- Configuration des paramètres de preprocessing
-- Configuration des modèles et pipelines
+Importe les composants clés afin qu'ils soient accessibles directement :
+    from modules.config import init_project, setup_project_paths, ProjectConfig
 """
 
-from .paths_config import setup_project_paths, is_colab
+from .env_setup import init_project
+from .paths_config import setup_project_paths
 from .project_config import ProjectConfig, create_config
-from .setup import quick_setup, silent_setup
-from .config_setup import setup_project_configuration, quick_project_config
+from .display_config import set_display_options
 
 __all__ = [
-    'setup_project_paths',
-    'is_colab',
-    'ProjectConfig',
-    'create_config',
-    'quick_setup',
-    'silent_setup',
-    'setup_project_configuration', 
-    'quick_project_config'          
+    "init_project",
+    "setup_project_paths", 
+    "ProjectConfig",
+    "create_config",
+    "set_display_options",
 ]
-

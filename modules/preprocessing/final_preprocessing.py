@@ -8,7 +8,6 @@ NOUVELLES FONCTIONNALITÉS VERSION 3.0:
 - Intégration de l'analyse de corrélation comprehensive
 - Réduction de dimensionnalité efficace
 - Protection X4 renforcée
-- Fonctions de diagnostic avancées
 - Pipeline modulaire et robuste
 
 CORRECTIONS VERSION 3.0:
@@ -40,6 +39,14 @@ from preprocessing.outliers import detect_and_remove_outliers
 from preprocessing.data_loader import load_data
 from exploration.visualization import save_fig
 
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer
+
+
+
+from config.paths_config import setup_project_paths
+
+paths = setup_project_paths()
 
 # ============================================================================
 # 1. UTILITAIRES DE BASE
@@ -292,38 +299,105 @@ def analyze_correlation_comprehensive(df: pd.DataFrame, threshold=0.90, show_ana
     return df_reduced, correlation_report
 
 
-def apply_correlation_reduction_to_dataset(df, threshold=0.95):
-    """Applique la réduction de corrélation à un dataset."""
+
+
+import joblib
+from pathlib import Path
+
+models_dir = paths["MODELS_DIR"] / "notebook1"
+Path(models_dir).mkdir(parents=True, exist_ok=True)
+
+
+def apply_collinearity_filter(
+    df,
+    cols_to_drop,
+    imputation_method: str, # 'mice' ou 'knn'
+    models_dir: Path,       # Le dossier de BASE (ex: '.../notebook1')
+    protected_cols=['X4'],
+    display_info=True,
+    save_results=True
+):
+    """
+    Supprime les colonnes corrélées et sauvegarde la liste dans un
+    sous-dossier spécifique à la méthode d'imputation.
+    """
+
+    # --- 1. Protection des colonnes ---
+    cols_to_drop_filtered = [col for col in cols_to_drop if col not in protected_cols]
     
-    print("🚀 APPLICATION DE LA RÉDUCTION DE CORRÉLATION")
-    print("=" * 50)
+    if display_info and protected_cols:
+        protected_saved = len(cols_to_drop) - len(cols_to_drop_filtered)
+        if protected_saved > 0:
+            saved_cols = [col for col in cols_to_drop if col in protected_cols]
+            print(f"🛡️ {protected_saved} colonnes protégées : {saved_cols}")
+
+    # --- 2. Sauvegarde dynamique dans le sous-dossier ---
+    if save_results:
+        # Construit le chemin du sous-dossier (ex: .../notebook1/mice)
+        save_directory = models_dir / imputation_method
+        # Crée le dossier s'il n'existe pas
+        save_directory.mkdir(parents=True, exist_ok=True)
+        
+        # Définit le chemin complet du fichier
+        save_path = save_directory / "cols_to_drop_corr.pkl"
+        
+        try:
+            joblib.dump(cols_to_drop_filtered, save_path)
+            if display_info:
+                print(f"💾 Liste des colonnes sauvegardée dans : {save_directory.name}/{save_path.name}")
+        except Exception as e:
+            print(f"❌ Erreur lors de la sauvegarde : {e}")
+
+    # --- 3. Suppression des colonnes ---
+    existing_cols_to_drop = [col for col in cols_to_drop_filtered if col in df.columns]
+    df_filtered = df.drop(columns=existing_cols_to_drop)
+
+    if display_info:
+        print(f"✅ Colonnes supprimées : {len(existing_cols_to_drop)}")
+        print(f"📏 Dimensions finales : {df_filtered.shape}")
+
+    return df_filtered
+
+
+
+
+
+
+
+# def apply_correlation_reduction_to_dataset(df, threshold=0.95):
+#     """Applique la réduction de corrélation à un dataset."""
     
-    # Application
-    df_reduced, report = analyze_correlation_comprehensive(df, threshold=threshold)
+#     print("🚀 APPLICATION DE LA RÉDUCTION DE CORRÉLATION")
+#     print("=" * 50)
     
-    # Validation finale
-    print(f"\n🔍 VALIDATION FINALE :")
-    print(f"✅ Dimensions réduites : {df.shape} → {df_reduced.shape}")
-    print(f"✅ X4 conservée : {'X4' in df_reduced.columns}")
-    print(f"✅ Outcome conservée : {'outcome' in df_reduced.columns}")
-    print(f"✅ Variables transformées conservées : {all(col in df_reduced.columns for col in ['X1_trans', 'X2_trans', 'X3_trans'])}")
+#     # Application
+#     df_reduced, report = analyze_correlation_comprehensive(df, threshold=threshold)
     
-    # Vérification ordre des colonnes
-    priority_cols = ['X1_trans', 'X2_trans', 'X3_trans', 'X4', 'outcome']
-    current_order = df_reduced.columns.tolist()
-    first_cols = current_order[:len(priority_cols)]
+#     # Validation finale
+#     print(f"\n🔍 VALIDATION FINALE :")
+#     print(f"✅ Dimensions réduites : {df.shape} → {df_reduced.shape}")
+#     print(f"✅ X4 conservée : {'X4' in df_reduced.columns}")
+#     print(f"✅ Outcome conservée : {'outcome' in df_reduced.columns}")
+#     print(f"✅ Variables transformées conservées : {all(col in df_reduced.columns for col in ['X1_trans', 'X2_trans', 'X3_trans'])}")
     
-    print(f"📌 Ordre des premières colonnes : {first_cols}")
+#     # Vérification ordre des colonnes
+#     priority_cols = ['X1_trans', 'X2_trans', 'X3_trans', 'X4', 'outcome']
+#     current_order = df_reduced.columns.tolist()
+#     first_cols = current_order[:len(priority_cols)]
     
-    # Réorganiser si nécessaire
-    if first_cols != priority_cols:
-        print("🔄 Réorganisation des colonnes...")
-        other_cols = [col for col in current_order if col not in priority_cols]
-        new_order = priority_cols + other_cols
-        df_reduced = df_reduced[new_order]
-        print(f"✅ Colonnes réorganisées : {df_reduced.columns[:5].tolist()}")
+#     print(f"📌 Ordre des premières colonnes : {first_cols}")
     
-    return df_reduced, report
+#     # Réorganiser si nécessaire
+#     if first_cols != priority_cols:
+#         print("🔄 Réorganisation des colonnes...")
+#         other_cols = [col for col in current_order if col not in priority_cols]
+#         new_order = priority_cols + other_cols
+#         df_reduced = df_reduced[new_order]
+#         print(f"✅ Colonnes réorganisées : {df_reduced.columns[:5].tolist()}")
+    
+#     return df_reduced, report
+
+
 
 
 # ============================================================================

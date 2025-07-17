@@ -1,62 +1,35 @@
-# config/paths_config.py
 """
-Configuration des chemins pour le projet STA211.
-Remplace l'ancien project_setup.py
+paths_config.py
+Créer et renvoyer un dictionnaire de chemins Project-friendly.
 """
-import os
-import sys
+
+from __future__ import annotations
 from pathlib import Path
-from typing import Dict
+
+__all__ = ["setup_project_paths", "is_colab"]  # Ajout explicite d'is_colab
+
+def setup_project_paths(root_dir: str | Path | None = None) -> dict[str, Path]:
+    root = Path(root_dir).expanduser().resolve() if root_dir else Path(__file__).resolve().parents[2]
+    paths = {
+        "ROOT_DIR": root,
+        "MODULE_DIR": root / "modules",
+        "RAW_DATA_DIR": root / "data" / "raw",
+        "DATA_PROCESSED": root / "data" / "processed",
+        "MODELS_DIR": root / "models",
+        "FIGURES_DIR": root / "outputs" / "figures",
+        "OUTPUTS_DIR": root / "outputs"
+    }
+    # Création physique des dossiers si besoin
+    for p in paths.values():
+        if p.suffix:  # Ignore les fichiers
+            continue
+        p.mkdir(parents=True, exist_ok=True)
+    return paths
 
 def is_colab() -> bool:
-    """Détecte si le code s'exécute dans Google Colab."""
+    """Détecte si l'on est dans un environnement Google Colab."""
     try:
         import google.colab
         return True
     except ImportError:
         return False
-
-def setup_project_paths() -> Dict[str, Path]:
-    """
-    Initialise les chemins du projet selon l'environnement (Colab ou local),
-    crée les répertoires nécessaires, ajoute MODULE_DIR au sys.path,
-    et retourne les chemins utiles.
-    """
-    # Détection de l'environnement
-    if is_colab():
-        # Montage de Google Drive uniquement si non monté
-        if not Path("/content/drive").exists():
-            from google.colab import drive
-            drive.mount('/content/drive', force_remount=True)
-        root_dir = Path("/content/drive/MyDrive/projet_sta211")
-    else:
-        root_dir = Path("G:/Mon Drive/projet_sta211")
-
-    # Définition des chemins utiles
-    paths = {
-        "ROOT_DIR": root_dir,
-        "MODULE_DIR": root_dir / "modules",
-        "RAW_DATA_DIR": root_dir / "data" / "raw",
-        "DATA_PROCESSED": root_dir / "data" / "processed",
-        "MODELS_DIR": root_dir / "models",
-        "FIGURES_DIR": root_dir / "outputs" / "figures",
-        "OUTPUTS_DIR": root_dir / "outputs"
-    }
-
-    # Création des dossiers si nécessaires
-    for folder_path in paths.values():
-        folder_path.mkdir(parents=True, exist_ok=True)
-
-    # Ajout de MODULE_DIR au sys.path si absent
-    module_dir = paths["MODULE_DIR"]
-    if str(module_dir) not in sys.path:
-        sys.path.insert(0, str(module_dir))
-
-    return paths
-
-# Mode exécution directe
-if __name__ == "__main__":
-    paths = setup_project_paths()
-    print("📁 Chemins configurés :")
-    for name, path in paths.items():
-        print(f"  {name}: {path}")

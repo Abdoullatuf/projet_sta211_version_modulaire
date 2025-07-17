@@ -3,8 +3,8 @@
 
 ## 6.3 Comparaison des méthodes d'imputation - PARTIE 1/4
 
-print("📊 COMPARAISON DES MÉTHODES D'IMPUTATION")
-print("="*60)
+# print("📊 COMPARAISON DES MÉTHODES D'IMPUTATION")
+# print("="*60)
 
 from pathlib import Path
 import pandas as pd
@@ -115,7 +115,7 @@ def plot_distributions_comparison(datasets_dict, save_path=None):
     else:
         plt.show()
 
-print("✅ Fonctions de comparaison définies")
+# print("✅ Fonctions de comparaison définies")
 
 
 ## 6.3 Comparaison des méthodes d'imputation - PARTIE 2/4
@@ -260,7 +260,7 @@ def plot_statistics_comparison(datasets_dict, save_path=None):
     else:
         plt.show()
 
-print("✅ Fonctions de visualisation définies")
+# print("✅ Fonctions de visualisation définies")
 
 
 ## 6.3 Comparaison des méthodes d'imputation - PARTIE 3/4
@@ -418,7 +418,7 @@ def calculate_imputation_quality_scores(datasets_dict):
     
     return scores
 
-print("✅ Fonctions d'analyse statistique définies")
+# print("✅ Fonctions d'analyse statistique définies")
 
 
 ## 6.3 Comparaison des méthodes d'imputation - PARTIE 4/4
@@ -530,52 +530,7 @@ def generate_final_recommendations(quality_scores, statistical_results):
 # EXÉCUTION COMPLÈTE DE L'ANALYSE
 # ============================================================================
 
-if 'GENERATED_DATASETS' in locals():
-    print("🔄 LANCEMENT DE L'ANALYSE COMPARATIVE COMPLÈTE")
-    print("="*60)
-    
-    # 1. Analyse comparative de base
-    comparison_data = compare_imputation_methods(GENERATED_DATASETS)
-    
-    if comparison_data:
-        comparison_df = pd.DataFrame(comparison_data)
-        print("\n📊 TABLEAU COMPARATIF RÉSUMÉ:")
-        # Afficher seulement les colonnes principales
-        key_columns = ['Dataset', 'Dimensions', 'Valeurs_manquantes', 'Target_0', 'Target_1', 'Ratio_desequilibre']
-        print(comparison_df[key_columns].to_string(index=False))
-    
-    # 2. Visualisations
-    print("\n📊 Génération des visualisations...")
-    plot_distributions_comparison(
-        GENERATED_DATASETS, 
-        save_path="outputs/figures/distributions_comparison.png"
-    )
-    
-    plot_statistics_comparison(
-        GENERATED_DATASETS,
-        save_path="outputs/figures/statistics_comparison.png"
-    )
-    
-    # 3. Tests statistiques
-    statistical_results = statistical_tests_imputation(GENERATED_DATASETS)
-    
-    # 4. Scores de qualité
-    quality_scores = calculate_imputation_quality_scores(GENERATED_DATASETS)
-    
-    # 5. Recommandations finales
-    recommended_method = generate_final_recommendations(quality_scores, statistical_results)
-    
-    print(f"\n✅ ANALYSE COMPARATIVE TERMINÉE!")
-    print(f"📁 Graphiques sauvegardés dans: outputs/figures/")
-    print(f"🏆 Méthode recommandée: {recommended_method}")
-    print(f"📊 Utilisez: GENERATED_DATASETS['{recommended_method}']['dataframe']")
 
-else:
-    print("⚠️ Variable GENERATED_DATASETS non trouvée.")
-    print("Assurez-vous d'avoir exécuté la section de génération des datasets.")
-
-
-# Nouvelle fonction d'exécution complète
 def run_imputation_comparison(datasets_dict, output_dir="outputs/figures"):
     """
     Exécute l'analyse comparative complète des méthodes d'imputation :

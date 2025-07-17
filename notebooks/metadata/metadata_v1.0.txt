@@ -1,5 +1,0 @@
-Projet: Projet STA 211: Internet Advertisements Classification
-Dataset: Internet Advertisements Dataset
-Auteur: Abdoullatuf
-Date: 2025-06-04
-Version: 1.0

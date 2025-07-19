@@ -1,155 +1,268 @@
-from modules.config.env_setup import init_project
-from modules.preprocessing.data_loader import load_data
-
 import pandas as pd
+import numpy as np
 import joblib
 import json
-import logging
 from pathlib import Path
-import numpy as np
+import logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# Configuration du logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 log = logging.getLogger(__name__)
 
-# Initialisation environnement
-project = init_project()
-paths = project["paths"]
-ROOT_DIR = paths["ROOT_DIR"]  # Récupérer ROOT_DIR depuis le dictionnaire
-log.info("✅ Initialisation chemins via env_setup OK")
+def load_test_data(data_path: Path) -> tuple[pd.DataFrame, pd.Series]:
+    """
+    Charge les données de test avec gestion robuste des erreurs de parsing.
+    """
+    try:
+        # Essayer d'abord avec une lecture standard (avec en-tête)
+        df = pd.read_csv(
+            data_path,
+            sep='\t',
+            quotechar='"',
+            encoding='utf-8',
+            na_values='?',
+            engine='python',
+            on_bad_lines='skip'
+        )
+        
+        log.info(f"📊 Fichier lu avec {df.shape[1]} colonnes et {df.shape[0]} lignes")
+        
+        # Si on n'a qu'une colonne, essayer avec virgule
+        if df.shape[1] == 1:
+            log.warning("⚠️ Lecture avec tabulation a échoué (1 seule colonne détectée). Retraitement avec virgule.")
+            df = pd.read_csv(
+                data_path,
+                sep=',',
+                quotechar='"',
+                encoding='utf-8',
+                na_values='?',
+                engine='python',
+                on_bad_lines='skip'
+            )
+            
+    except Exception as e:
+        log.error(f"❌ Erreur de lecture du fichier : {e}")
+        raise
 
-def generate_submission_file(test_data_path: Path,
-                              columns_path: Path,
-                              models_dir: Path,
-                              output_path: Path) -> None:
-    log.info("🚀 Démarrage du processus de prédiction pour la soumission...")
+    # Le fichier contient les données avec en-tête, nous devons traiter les colonnes
+    log.info(f"📊 Fichier lu avec {df.shape[1]} colonnes et {df.shape[0]} lignes")
+    
+    # La première colonne est l'ID, les autres sont les features
+    ids = df.iloc[:, 0]
+    features = df.iloc[:, 1:]  # Toutes les colonnes sauf la première (ID)
+    
+    # Nettoyer les noms de colonnes (supprimer les guillemets)
+    features.columns = [col.replace('"', '') for col in features.columns]
+    
+    # Vérifier que nous avons les bonnes colonnes
+    expected_cols = [f'X{i}' for i in range(1, 1558)]
+    missing_cols = [col for col in expected_cols if col not in features.columns]
+    if missing_cols:
+        log.warning(f"⚠️ Colonnes manquantes : {missing_cols[:10]}...")
+        # Créer les colonnes manquantes avec des valeurs par défaut
+        for col in missing_cols:
+            features[col] = 0
+    
+    # Réorganiser les colonnes dans l'ordre attendu
+    features = features[expected_cols]
+    
+    # Nettoyer les données - supprimer les guillemets et convertir en numérique
+    for col in features.columns:
+        features[col] = features[col].astype(str).str.replace('"', '').str.replace("'", "")
+        # Convertir en numérique, avec gestion des erreurs
+        features[col] = pd.to_numeric(features[col], errors='coerce')
+    
+    # Remplacer les valeurs NaN par 0 (ou une autre stratégie appropriée)
+    features = features.fillna(0)
+    
+    log.info(f"✅ Données originales chargées et nettoyées : {features.shape}")
+    log.info(f"📋 Premières colonnes : {list(features.columns[:5])}")
+    return features, ids
 
-    champion_path = models_dir / "notebook2" / "meilleur_modele" / "champion_info.json"
-    with open(champion_path) as f:
-        champion_info = json.load(f)
+def preprocess(df: pd.DataFrame, imputation_method: str, model_dir: Path) -> pd.DataFrame:
+    """
+    Applique le pipeline de prétraitement complet (Notebook 01) à un DataFrame brut
+    pour une méthode d'imputation donnée (mice ou knn).
+    """
+    log.info(f"--- Démarrage du prétraitement pour '{imputation_method.upper()}' ---")
+    df = df.copy()
+    
+    # Étape 1: Imputation X4 (médiane)
+    if 'X4' in df.columns:
+        median_path = model_dir / "notebook1" / "median_imputer_X4.pkl"
+        median_value = joblib.load(median_path)
+        df['X4'] = df['X4'].fillna(median_value)
 
-    champ_name = champion_info["model_name"]
-    champ_imp = champion_info["imputation"].lower()
-
-    champ_pipe_path = ROOT_DIR / champion_info["pipeline_path"]
-    threshold_value = champion_info["performance"]["threshold"]
-
-    log.info(f"🏆 Champion chargé : {champ_name}, Seuil: {threshold_value:.3f}")
-
-    # 1️⃣ Chargement des colonnes officielles
-    columns = joblib.load(columns_path)
-    log.info(f"✅ {len(columns)} noms de colonnes chargés depuis {columns_path.name}")
-
-    # 2️⃣ Chargement des données brutes
-    df_test_raw = load_data(test_data_path, require_outcome=False, display_info=False)
-
-    # 3️⃣ Chargement des transformers et paramètres liés à l'imputation choisie
-    transf_dir = models_dir / "notebook1" / champ_imp / f"{champ_imp}_transformers"
-
-    yj_path = transf_dir / "yeo_johnson_X1_X2.pkl"
-    bc_path = transf_dir / "box_cox_X3.pkl"
-    poly_path = models_dir / "notebook1" / champ_imp / f"poly_transformer_{champ_imp}.pkl"
-
+    # Étape 2: Imputation MICE/KNN (seulement sur les colonnes continues)
+    continuous_cols = ['X1', 'X2', 'X3']
+    df_continuous = df[continuous_cols].copy()
+    
+    if imputation_method == "mice":
+        imputer_path = model_dir / "notebook1" / imputation_method / "imputer_mice_custom.pkl"
+    else:  # knn
+        imputer_path = model_dir / "notebook1" / imputation_method / "imputer_knn_k7.pkl"
+    
+    imputer = joblib.load(imputer_path)
+    df_imputed_continuous = pd.DataFrame(
+        imputer.transform(df_continuous), 
+        columns=continuous_cols, 
+        index=df.index
+    )
+    
+    # Remplacer les colonnes originales par les colonnes imputées
+    for col in continuous_cols:
+        df[col] = df_imputed_continuous[col]
+    
+    # Étape 3: Transformation (Yeo-Johnson + Box-Cox)
+    yj_path = model_dir / "notebook1" / imputation_method / f"{imputation_method}_transformers" / "yeo_johnson_X1_X2.pkl"
+    bc_path = model_dir / "notebook1" / imputation_method / f"{imputation_method}_transformers" / "box_cox_X3.pkl"
     transformer_yj = joblib.load(yj_path)
     transformer_bc = joblib.load(bc_path)
-    poly_transformer = joblib.load(poly_path)
-
-    # 4️⃣ Application des transformations
-    df_x = df_test_raw.copy()
-
-    # Yeo-Johnson + Box-Cox
-    df_x['X1_transformed'] = transformer_yj.transform(df_x[['X1', 'X2']])[:, 0]
-    df_x['X2_transformed'] = transformer_yj.transform(df_x[['X1', 'X2']])[:, 1]
-    df_x3 = df_x[['X3']].clip(lower=1e-6)  # Protection avant Box-Cox
-    df_x['X3_transformed'] = transformer_bc.transform(df_x3)
-
-    # Imputation des valeurs manquantes avant les transformations polynomiales
-    continuous_cols = ['X1_transformed', 'X2_transformed', 'X3_transformed']
+    df[['X1', 'X2']] = transformer_yj.transform(df[['X1', 'X2']])
+    df_x3 = df[['X3']].copy()
+    if (df_x3['X3'] <= 0).any(): df_x3['X3'] += 1e-6
+    df['X3'] = transformer_bc.transform(df_x3)
+    df.rename(columns={'X1': 'X1_transformed', 'X2': 'X2_transformed', 'X3': 'X3_transformed'}, inplace=True)
     
-    # Créer un nouvel imputer avec les mêmes paramètres que l'entraînement
-    if champ_imp == "mice":
-        from sklearn.experimental import enable_iterative_imputer
-        from sklearn.impute import IterativeImputer
-        from sklearn.ensemble import RandomForestRegressor
-        
-        imputer = IterativeImputer(
-            estimator=RandomForestRegressor(
-                n_estimators=400,
-                max_depth=20,
-                min_samples_leaf=2,
-                max_features=0.5,
-                random_state=42,
-                n_jobs=-1
-            ),
-            max_iter=10,
-            random_state=42
-        )
-    else:  # knn
-        from sklearn.impute import KNNImputer
-        imputer = KNNImputer(n_neighbors=7)  # Même k que dans l'imputer sauvegardé
-    
-    df_x[continuous_cols] = imputer.fit_transform(df_x[continuous_cols])
-
-    # Vérifier et traiter les valeurs NaN restantes
-    if df_x.isnull().any().any():
-        log.warning(f"⚠️ Valeurs NaN détectées après imputation. Colonnes avec NaN: {df_x.columns[df_x.isnull().any()].tolist()}")
-        # Imputer les valeurs NaN restantes avec la médiane
-        df_x = df_x.fillna(df_x.median())
-        log.info("✅ Valeurs NaN restantes imputées avec la médiane")
-
-    df_x.drop(columns=['X1', 'X2', 'X3'], inplace=True)
-
-    # Capping
-    capping_params = joblib.load(models_dir / "notebook1" / champ_imp / f"capping_params_{champ_imp}.pkl")
+    # Étape 4: Capping
+    capping_path = model_dir / "notebook1" / imputation_method / f"capping_params_{imputation_method}.pkl"
+    capping_params = joblib.load(capping_path)
     for col in ['X1_transformed', 'X2_transformed', 'X3_transformed']:
         bounds = capping_params.get(col, {})
-        df_x[col] = np.clip(df_x[col], bounds.get('lower_bound'), bounds.get('upper_bound'))
+        df[col] = np.clip(df[col], bounds.get('lower_bound'), bounds.get('upper_bound'))
 
-    # Suppression colinéarité
-    cols_to_drop = joblib.load(models_dir / "notebook1" / champ_imp / f"cols_to_drop_corr_{champ_imp}.pkl")
-    df_x.drop(columns=cols_to_drop, errors='ignore', inplace=True)
-
-    # Ingénierie polynomial
-    poly_features = poly_transformer.transform(df_x[continuous_cols])
-    poly_feature_names = poly_transformer.get_feature_names_out(continuous_cols)
-    df_poly = pd.DataFrame(poly_features, columns=poly_feature_names, index=df_x.index)
-
-    df_engineered = df_x.drop(columns=continuous_cols).join(df_poly)
-
-    # Vérifier et traiter les valeurs NaN après les transformations polynomiales
-    if df_engineered.isnull().any().any():
-        log.warning(f"⚠️ Valeurs NaN détectées après transformations polynomiales. Colonnes avec NaN: {df_engineered.columns[df_engineered.isnull().any()].tolist()}")
-        # Imputer les valeurs NaN restantes avec la médiane
-        df_engineered = df_engineered.fillna(df_engineered.median())
-        log.info("✅ Valeurs NaN restantes imputées avec la médiane")
-
-    # 5️⃣ Sélection finale des colonnes + modèle
-    missing = [col for col in columns if col not in df_engineered.columns]
-    if missing:
-        log.warning(f"⚠️ Colonnes manquantes dans data_test après transformation : {missing}")
-
-    final_cols = [col for col in columns if col in df_engineered.columns]
-    df_engineered = df_engineered[final_cols].copy()
-
-    final_pipeline = joblib.load(champ_pipe_path)
-    probas = final_pipeline.predict_proba(df_engineered)[:, 1]
-    predictions = (probas >= threshold_value).astype(int)
-
-    ids_test = df_test_raw.index if df_test_raw.index.name == "ID" else df_test_raw.iloc[:, 0]
-
-    # Conversion des prédictions au format attendu (ad./noad.)
-    predictions_formatted = ["ad." if p == 1 else "noad." for p in predictions]
+    # Étape 5: Suppression de la colinéarité
+    corr_path = model_dir / "notebook1" / imputation_method / f"cols_to_drop_corr_{imputation_method}.pkl"
+    cols_to_drop = joblib.load(corr_path)
+    df = df.drop(columns=cols_to_drop, errors='ignore')
     
-    # Création du DataFrame au bon format (sans en-tête, seulement les prédictions)
-    submission_df = pd.DataFrame(predictions_formatted)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    submission_df.to_csv(output_path, index=False, header=False)
+    # Étape 6: Ingénierie de caractéristiques
+    poly_path = model_dir / "notebook1" / imputation_method / f"poly_transformer_{imputation_method}.pkl"
+    poly_transformer = joblib.load(poly_path)
+    continuous_cols = ['X1_transformed', 'X2_transformed', 'X3_transformed']
+    continuous_features = df[continuous_cols]
+    poly_features = poly_transformer.transform(continuous_features)
+    poly_feature_names = poly_transformer.get_feature_names_out(continuous_cols)
+    df_poly = pd.DataFrame(poly_features, columns=poly_feature_names, index=df.index)
+    df = df.drop(columns=continuous_cols).join(df_poly)
+    
+    log.info(f"--- Prétraitement pour '{imputation_method.upper()}' terminé. Shape final : {df.shape} ---")
+    return df
 
-    log.info(f"🎉 Fichier de soumission créé avec succès : {output_path}")
+def predict(models_dir: Path, test_data_path: Path, output_dir: Path):
+    """
+    Génère les prédictions finales en utilisant le modèle champion (Stacking sans refit KNN).
+    """
+    log.info("🚀 Démarrage de la génération des prédictions finales...")
+    
+    # Charger les données de test
+    log.info("📂 Chargement des données de test...")
+    df_test, ids = load_test_data(test_data_path)
+    
+    # Prétraiter les données avec KNN (méthode du champion)
+    log.info("🔄 Prétraitement des données avec KNN...")
+    df_processed = preprocess(df_test, "knn", models_dir)
+    
+    # Charger les colonnes attendues pour KNN
+    log.info("📋 Chargement des colonnes attendues...")
+    columns_knn = joblib.load(models_dir / "notebook2" / "knn" / "columns_knn.pkl")
+    
+    # Sélectionner seulement les colonnes utilisées dans l'entraînement
+    available_columns = [col for col in columns_knn if col in df_processed.columns]
+    missing_columns = [col for col in columns_knn if col not in df_processed.columns]
+    
+    if missing_columns:
+        log.warning(f"⚠️ Colonnes manquantes : {missing_columns}")
+        # Ajouter des colonnes avec des valeurs par défaut
+        for col in missing_columns:
+            df_processed[col] = 0
+    
+    df_processed = df_processed[columns_knn]
+    
+    # Charger le seuil optimal
+    log.info("📊 Chargement du seuil optimal...")
+    threshold_path = models_dir / "notebook3" / "stacking_champion_threshold.json"
+    with open(threshold_path, 'r') as f:
+        threshold_data = json.load(f)
+        threshold = threshold_data["threshold"]
+    
+    log.info(f"✅ Seuil optimal chargé : {threshold:.4f}")
+    
+    # Générer les meta-features en utilisant les pipelines individuels
+    log.info("🔄 Génération des meta-features...")
+    meta_features = {}
+    
+    model_names = ["SVM", "XGBoost", "RandForest", "GradBoost", "MLP"]
+    
+    for model_name in model_names:
+        try:
+            pipeline_path = models_dir / "notebook2" / f"pipeline_{model_name.lower()}_knn.joblib"
+            pipeline = joblib.load(pipeline_path)
+            
+            # Générer les probabilités pour chaque modèle
+            proba = pipeline.predict_proba(df_processed)[:, 1]
+            meta_features[f"{model_name}_knn"] = proba
+            log.info(f"✅ Meta-features générées pour {model_name}")
+        except Exception as e:
+            log.error(f"❌ Erreur lors de la génération des meta-features pour {model_name}: {e}")
+            # Utiliser des probabilités par défaut en cas d'erreur
+            meta_features[f"{model_name}_knn"] = np.full(len(df_processed), 0.5)
+    
+    # Créer le DataFrame des meta-features
+    df_meta = pd.DataFrame(meta_features)
+    
+    # Calculer la moyenne des probabilités (Stacking sans refit)
+    log.info("📊 Calcul de la moyenne des probabilités (Stacking sans refit)...")
+    proba_final = df_meta.mean(axis=1)
+    
+    # Appliquer le seuil optimal
+    prediction_num = (proba_final >= threshold).astype(int)
+    prediction_label = np.where(prediction_num == 1, "ad.", "noad.")
+    
+    # Debug: vérifier les longueurs
+    log.info(f"🔍 Debug - Longueurs des variables:")
+    log.info(f"   - ids: {len(ids)} (type: {type(ids)})")
+    log.info(f"   - proba_final: {len(proba_final)}")
+    log.info(f"   - prediction_label: {len(prediction_label)}")
+    
+    # Convertir ids en liste si c'est une Series
+    if hasattr(ids, 'values'):
+        ids_list = ids.values.tolist()
+    else:
+        ids_list = list(ids)
+    
+    # Créer le DataFrame détaillé avec toutes les informations
+    detailed = pd.DataFrame({
+        'ID': ids_list,
+        'probabilite_stacking': proba_final.values,
+        'prediction_stacking': prediction_label,
+        'seuil_optimal': [threshold] * len(ids_list)
+    })
+    
+    # Créer le fichier de soumission (seulement les prédictions)
+    submission = pd.DataFrame({
+        'prediction': prediction_label
+    })
+    
+    # Sauvegarder les résultats
+    output_dir.mkdir(parents=True, exist_ok=True)
+    detailed.to_csv(output_dir / "predictions_finales_stacking_knn_detailed.csv", index=False)
+    submission.to_csv(output_dir / "predictions_finales_stacking_knn_submission.csv", index=False)
+    
+    # Afficher les statistiques
+    log.info("📊 Statistiques des prédictions :")
+    log.info(f"   - Nombre total de prédictions : {len(prediction_label)}")
+    log.info(f"   - Prédictions 'ad.' : {np.sum(prediction_num)} ({np.mean(prediction_num)*100:.1f}%)")
+    log.info(f"   - Prédictions 'noad.' : {len(prediction_num) - np.sum(prediction_num)} ({(1-np.mean(prediction_num))*100:.1f}%)")
+    log.info(f"   - Seuil utilisé : {threshold:.4f}")
+    
+    log.info("✅ Prédictions générées et fichiers exportés avec succès !")
+    log.info(f"   📄 Fichier détaillé : {output_dir / 'predictions_finales_stacking_knn_detailed.csv'}")
+    log.info(f"   📄 Fichier de soumission : {output_dir / 'predictions_finales_stacking_knn_submission.csv'}")
 
 if __name__ == "__main__":
-    TEST_DATA_PATH = paths["RAW_DATA_DIR"] / "data_test.csv"
-    COLUMNS_PATH = paths["MODELS_DIR"] / "notebook2" / "mice" / "columns_mice.pkl"
-    MODELS_DIR = paths["MODELS_DIR"]
-    SUBMISSION_PATH = paths["OUTPUTS_DIR"] / "predictions" / "submission.csv"
-
-    generate_submission_file(TEST_DATA_PATH, COLUMNS_PATH, MODELS_DIR, SUBMISSION_PATH)
+    predict(
+        models_dir=Path("models"),
+        test_data_path=Path("data/raw/data_test.csv"),
+        output_dir=Path("outputs/predictions")
+    )

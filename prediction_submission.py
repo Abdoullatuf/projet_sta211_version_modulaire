@@ -247,7 +247,8 @@ def predict(models_dir: Path, test_data_path: Path, output_dir: Path):
     # Sauvegarder les résultats
     output_dir.mkdir(parents=True, exist_ok=True)
     detailed.to_csv(output_dir / "predictions_finales_stacking_knn_detailed.csv", index=False)
-    submission.to_csv(output_dir / "predictions_finales_stacking_knn_submission.csv", index=False)
+    # Sauvegarder SANS en-tête pour la soumission (format attendu par R)
+    submission.to_csv(output_dir / "predictions_finales_stacking_knn_submission.csv", index=False, header=False)
     
     # Afficher les statistiques
     log.info("📊 Statistiques des prédictions :")

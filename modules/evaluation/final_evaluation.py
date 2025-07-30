@@ -1,129 +1,112 @@
 # Fichier : modules/evaluation/final_evaluation.py
-
-import json
 import joblib
-import pandas as pd
+import json
 from pathlib import Path
-from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score, confusion_matrix
+import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import numpy as np
-import logging
+from sklearn.metrics import (
+    f1_score, precision_score, recall_score, roc_auc_score,
+    confusion_matrix, ConfusionMatrixDisplay
+)
 
-# Configuration du logging
-log = logging.getLogger(__name__)
+def load_thresholds(imputation: str, version: str, thresholds_dir: Path) -> dict:
+    path = thresholds_dir / f"optimized_thresholds_{imputation}_{version}.json"
+    if not path.exists():
+        raise FileNotFoundError(f"Fichier manquant : {path}")
+    with open(path, "r") as f:
+        return json.load(f)
 
-def _plot_confusion_matrix(cm, title, figures_dir):
-    """Affiche et sauvegarde une matrice de confusion."""
-    plt.figure(figsize=(4, 3))
-    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", cbar=False,
-                xticklabels=["Non-Pub", "Pub"], yticklabels=["Non-Pub", "Pub"])
-    plt.title(title, pad=20)
-    plt.xlabel("Prédiction")
-    plt.ylabel("Réel")
+def evaluate_all_models_on_test(pipelines_dict, thresholds_dict, splits_dict, output_dir: Path):
+    """
+    Évalue tous les modèles avec leurs seuils sur les jeux de test (KNN/MICE × Full/Reduced).
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    all_results = []
+
+    for key in pipelines_dict:
+        print(f"\n🔍 Évaluation : {key.upper()}")
+        pipes = pipelines_dict[key]
+        thresholds = thresholds_dict[key]
+
+        # Support des splits réduits avec structure différente
+        split = splits_dict[key]
+        # Corrected logic to access test data
+        if "test" in split and isinstance(split["test"], dict):
+            test_X = split["test"]["X"]
+            test_y = split["test"]["y"]
+        elif "X_test" in split and "y_test" in split:
+            test_X = split["X_test"]
+            test_y = split["y_test"]
+        else:
+            raise ValueError(f"Could not find test data in split dictionary for key: {key}")
+
+
+        for model_name, pipe in pipes.items():
+            if model_name not in thresholds:
+                print(f"⚠️ Seuil manquant pour {model_name} ({key}) – ignoré.")
+                continue
+
+            # Check if the model has predict_proba or decision_function
+            if hasattr(pipe, "predict_proba"):
+                y_scores = pipe.predict_proba(test_X)[:, 1]
+            elif hasattr(pipe, "decision_function"):
+                y_scores = pipe.decision_function(test_X)
+            else:
+                print(f"⚠️ Modèle {model_name} ({key}) ne supporte ni predict_proba ni decision_function – ignoré.")
+                continue
+
+            thr = thresholds[model_name]["threshold"]
+            y_pred = (y_scores >= thr).astype(int)
+
+            f1 = f1_score(test_y, y_pred)
+            precision = precision_score(test_y, y_pred)
+            recall = recall_score(test_y, y_pred)
+            auc = roc_auc_score(test_y, y_scores)
+
+            result = {
+                "model": model_name,
+                "imputation": key.split("_")[0].upper(),
+                "version": key.split("_")[1].upper(),
+                "threshold": thr,
+                "f1": f1,
+                "precision": precision,
+                "recall": recall,
+                "auc": auc
+            }
+            all_results.append(result)
+
+            # Affichage de la matrice de confusion
+            print(f"\n📌 {model_name} ({key}) - F1={f1:.4f}, Précision={precision:.4f}, Rappel={recall:.4f}, AUC={auc:.4f}")
+            cm = confusion_matrix(test_y, y_pred)
+            disp = ConfusionMatrixDisplay(cm)
+            disp.plot(cmap="Blues")
+            plt.title(f"{model_name} – {key.upper()} – TEST")
+            plt.tight_layout()
+            plt.gcf().set_size_inches(4, 4)  # ✅ Taille réduite
+            plt.show()
+
+    df_results = pd.DataFrame(all_results)
+    path = output_dir / "test_results_all_models.csv"
+    df_results.to_csv(path, index=False)
+    print(f"\n💾 Résultats sauvegardés → {path.name}")
+    return df_results
+
+def plot_test_performance(df_results):
+    """
+    Affiche un barplot des performances F1 sur TEST.
+    """
+    if df_results.empty:
+        print("❌ Données vides. Rien à afficher.")
+        return
+
+    df_sorted = df_results.sort_values("f1", ascending=True)
+    plt.figure(figsize=(8, 4))
+    ax = sns.barplot(data=df_sorted, x="f1", y="model", hue="imputation", dodge=True)
+    plt.title("F1-score sur TEST (toutes configurations)", fontsize=14)
+    plt.xlabel("F1-score"); plt.ylabel("Modèle")
+    plt.grid(axis="x", alpha=0.3, linestyle="--")
+    plt.legend(title="Imputation")
     plt.tight_layout()
-    
-    # Sauvegarde de la figure
-    if figures_dir:
-        figures_dir.mkdir(parents=True, exist_ok=True)
-        file_path = figures_dir / "final_test_confusion_matrix.png"
-        plt.savefig(file_path, dpi=150)
-        log.info(f"📊 Matrice de confusion sauvegardée : {file_path.name}")
-        
     plt.show()
-
-def run_final_evaluation(models_dir: Path, figures_dir: Path):
-    """
-    Exécute le pipeline complet d'évaluation finale sur le jeu de test.
-    
-    Args:
-        models_dir (Path): Chemin vers le dossier racine des modèles.
-        figures_dir (Path): Chemin vers le dossier où sauvegarder les figures.
-        
-    Returns:
-        dict: Un dictionnaire contenant les métriques de performance sur le jeu de test.
-    """
-    print("🚀 Évaluation finale du champion sur le jeu de TEST...")
-    print("=" * 60)
-
-    # --- 1. Chargement des informations du champion ---
-    try:
-        info_path = models_dir / "notebook2" / "meilleur_modele" / "champion_info.json"
-        with open(info_path, "r") as f:
-            champion_info = json.load(f)
-        
-        champ_pipe_path = Path(champion_info["pipeline_path"])
-        performance_data = champion_info["performance"]
-        champion_threshold = performance_data["threshold"]
-        champ_name = champion_info["model_name"]
-        champ_imp = champion_info["imputation"]
-        f1_val = performance_data["f1"]
-
-        print(f"🏆 Champion identifié : {champ_name} ({champ_imp.upper()})")
-        print(f"   Seuil optimisé : {champion_threshold:.3f}")
-        
-        champion_pipeline = joblib.load(champ_pipe_path)
-        print("✅ Pipeline champion chargé.")
-
-    except (FileNotFoundError, KeyError) as e:
-        log.error(f"❌ Erreur critique lors du chargement des informations du champion : {e}")
-        raise
-
-    # --- 2. Chargement des données de test ---
-    try:
-        test_data_path = models_dir / "notebook2" / champ_imp.lower() / f"{champ_imp.lower()}_test.pkl"
-        test_data = joblib.load(test_data_path)
-        X_test_final = test_data["X"]
-        y_test_final = test_data["y"]
-        print(f"✅ Jeu de test ({champ_imp}) chargé : {X_test_final.shape}")
-    except (FileNotFoundError, KeyError) as e:
-        log.error(f"❌ Erreur critique lors du chargement des données de test : {e}")
-        raise
-
-    # --- 3. Évaluation sur le jeu de test ---
-    print("\n📊 Évaluation des performances sur TEST final...")
-    
-    y_scores_test = champion_pipeline.predict_proba(X_test_final)[:, 1]
-    y_pred_test = (y_scores_test >= champion_threshold).astype(int)
-
-    # --- 4. Calcul et affichage des métriques ---
-    f1_test = f1_score(y_test_final, y_pred_test)
-    precision_test = precision_score(y_test_final, y_pred_test)
-    recall_test = recall_score(y_test_final, y_pred_test)
-    auc_test = roc_auc_score(y_test_final, y_scores_test)
-    gap_f1 = f1_val - f1_test
-
-    test_metrics = {
-        "model": champ_name,
-        "imputation": champ_imp,
-        "f1_test": f1_test,
-        "precision_test": precision_test,
-        "recall_test": recall_test,
-        "auc_test": auc_test,
-        "f1_validation": f1_val,
-        "gap_val_test": gap_f1,
-        "threshold": champion_threshold
-    }
-
-    print("\n📈 Analyse de la généralisation (Gap VAL vs TEST)...")
-    print(f"   F1-score (Validation) : {f1_val:.4f}")
-    print(f"   F1-score (Test)       : {f1_test:.4f}")
-    print(f"   Gap F1 (Val - Test)   : {gap_f1:+.4f}")
-    
-    if abs(gap_f1) <= 0.05:
-        print("   ✅ Bonne généralisation !")
-    else:
-        print("   ⚠️ Surapprentissage potentiel (gap > 0.05)")
-
-    # Affichage et sauvegarde de la matrice de confusion
-    cm_title = f"Matrice de Confusion (TEST)\n{champ_name} ({champ_imp}) @ Seuil={champion_threshold:.3f}"
-    _plot_confusion_matrix(confusion_matrix(y_test_final, y_pred_test), cm_title, figures_dir)
-
-    # --- 5. Sauvegarde des résultats finaux ---
-    results_path = figures_dir / "final_test_results.json"
-    with open(results_path, "w") as f:
-        json.dump(test_metrics, f, indent=2)
-    log.info(f" Métriques de test finales sauvegardées : {results_path.name}")
-    print("\n✅ Évaluation finale terminée. Résultats sauvegardés.")
-    
-    return test_metrics

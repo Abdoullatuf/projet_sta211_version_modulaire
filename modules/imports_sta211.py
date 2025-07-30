@@ -20,6 +20,9 @@ import warnings
 from pathlib import Path
 from typing import List, Tuple, Optional, Union
 
+# Suppression de l'avertissement tqdm/ipywidgets
+warnings.filterwarnings("ignore", message="IProgress not found")
+
 # --------------------------------------------------------------------------
 log = logging.getLogger(__name__)
 
@@ -84,7 +87,11 @@ from xgboost import XGBClassifier
 
 import scipy
 import joblib
-from tqdm.auto import tqdm
+# Import tqdm avec gestion d'erreur pour éviter l'avertissement ipywidgets
+try:
+    from tqdm.auto import tqdm
+except ImportError:
+    from tqdm import tqdm
 
 # ==========================================================================
 # CONFIGURATION GRAPHIQUE
@@ -139,33 +146,21 @@ np.random.seed(RANDOM_STATE)
 # ==========================================================================
 # IMPORT DES FONCTIONS D'OPTIMISATION DE SEUIL
 # ==========================================================================
-#  Chemin privilégié : modules/modeling/optimize_threshold_basic.py
-#  (aucune dépendance interne) pour éviter absolument toute importation circulaire.
+#  Import retiré pour éviter les imports circulaires
+#  Utiliser directement : from modules.modeling.optimize_threshold import optimize_threshold
 
-try:
-    from modules.modeling.optimize_threshold_basic import (
-        optimize_threshold,
-        optimize_multiple,
-    )
-    log.info("✅ Fonctions seuil chargées depuis optimize_threshold_basic.py")
-except ImportError:
-    # 2ᵉ fallback : ancien module unique (pas de _basic)
-    try:
-        from modules.modeling.optimize_threshold import (
-            optimize_threshold,
-            optimize_multiple,
-        )
-        log.warning("⚠️  Chargé depuis optimize_threshold.py (pensez à créer *_basic.py pour éviter les boucles d'import)")
-    except ImportError as err:
-        raise ImportError("Aucune implémentation de optimize_threshold trouvée !") from err
+# Fonctions placeholder pour éviter les erreurs
+def optimize_threshold(*args, **kwargs):
+    """Fonction placeholder - importer directement depuis modules.modeling.optimize_threshold"""
+    raise ImportError("Utiliser directement: from modules.modeling.optimize_threshold import optimize_threshold")
 
-# Extension facultative -----------------------------------------------------
-try:
-    from modules.modeling.optimize_threshold_extended import optimize_multiple_models  # type: ignore
-except ImportError:
-    def optimize_multiple_models(*_, **__):  # type: ignore
-        """Fonction placeholder si l'extension n'est pas installée."""
-        raise ImportError("modules.modeling.optimize_threshold_extended est introuvable.")
+def optimize_multiple(*args, **kwargs):
+    """Fonction placeholder - importer directement depuis modules.modeling.optimize_threshold"""
+    raise ImportError("Utiliser directement: from modules.modeling.optimize_threshold import optimize_multiple")
+
+def optimize_multiple_models(*_, **__):  # type: ignore
+    """Fonction placeholder - importer directement depuis modules.modeling.optimize_threshold_extended"""
+    raise ImportError("Utiliser directement: from modules.modeling.optimize_threshold_extended import optimize_multiple_models")
 
 # ==========================================================================
 # __all__  – symboles exportés par `from imports_sta211 import *`
@@ -191,6 +186,6 @@ __all__ = [
     # Constantes & helpers
     "RANDOM_STATE", "N_SPLITS", 
     #"print_shape_change",
-    # Fonctions seuil
-    "optimize_threshold", "optimize_multiple", "optimize_multiple_models",
+    # Fonctions seuil - importées directement si nécessaire
+    # "optimize_threshold", "optimize_multiple", "optimize_multiple_models",
 ]

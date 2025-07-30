@@ -226,7 +226,7 @@ def full_correlation_analysis(
     from exploration.visualization import save_fig
     import json
 
-    print("## Analyse des corrélations <a id='analyse-des-correlations'></a>\n")
+
     print("🔗 Analyse des corrélations")
     print("=" * 60)
 
@@ -235,6 +235,8 @@ def full_correlation_analysis(
     presence_series = pd.Series(presence_rates)
     quartiles = presence_series.quantile([0.25, 0.5, 0.75])
 
+    
+
     vars_q1 = presence_series[presence_series <= quartiles[0.25]].sample(10, random_state=42).index.tolist()
     vars_q2 = presence_series[(presence_series > quartiles[0.25]) & (presence_series <= quartiles[0.5])].sample(10, random_state=42).index.tolist()
     vars_q3 = presence_series[(presence_series > quartiles[0.5]) & (presence_series <= quartiles[0.75])].sample(10, random_state=42).index.tolist()
@@ -242,6 +244,12 @@ def full_correlation_analysis(
 
     selected_vars = continuous_cols + vars_q1 + vars_q2 + vars_q3 + vars_q4
     print(f"  - Variables sélectionnées : {len(selected_vars)} (3 continues + 40 binaires)")
+
+    print(f" Analyse sur un sous-échantillon : {len(continuous_cols)} continues + {len(selected_vars) - len(continuous_cols)} binaires")
+    print("ℹ️ Cette matrice de corrélation n’inclut qu’un échantillon aléatoire de 40 variables binaires (10 par quartile de taux de présence).")
+    print("ℹ️ Pour une analyse complète des redondances, voir la section bivariée ci-dessous.")
+
+
 
     print("\n📊 Calcul de la matrice de corrélation...")
     corr_matrix = df_study[selected_vars + ['y']].corr()
